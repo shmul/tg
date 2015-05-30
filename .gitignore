@@ -1,0 +1,17 @@
+*~
+*.native
+_build/
+_tests/
+*.log
+*.cudf
+*.dot
+# Generated files:
+*.cmo
+*.cmx
+*.cmi
+*.cmt
+*.cmti
+*.cma
+*.cmxa
+*.a
+*.o

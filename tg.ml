@@ -30,13 +30,14 @@ let guess_fields_from_file_name lines =
 let guess_date str =
   str
 
-
 (* drop extra spaces; capitalize; decode; remove "_#*"; *)
-let split_pats = Regex.create_exn "[ _#\\*]+"
+let split_pats = Regex.create_exn "[ _%#\\*]+"
 
 let normalize str =
   let parts = Regex.split split_pats str in
-  String.concat ~sep:" " (List.map parts ~f:String.capitalize)
+  String.concat ~sep:" " (List.filter parts ~f:(fun x -> (String.length x)>0) |>
+                            List.map  ~f:String.lowercase |>
+                            List.map ~f:String.capitalize)
 
 (* command line handling *)
 let readable_file =
