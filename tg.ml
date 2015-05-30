@@ -3,6 +3,7 @@ module Regex = Re2.Regex
 
 
 type track = {
+    filename : string;
     track : int;
     album : string;
     artist : string;
@@ -11,17 +12,36 @@ type track = {
     rest : (string, string) Hashtbl.t;
   }
 
-(* several heuristics - d/D as prefix for disc; t/T for track; free text after numbers as
-   title; 5-8 digits - date; 3 digits - disc and track
+(* several heuristics - d/D as prefix for disc; t/T for track;
+   free text after numbers as title;
+   5-8 digits - date;
+   3 digits - disc and track
+
+   %a - album
+   %d - disc
+   %n - track
+   %N - disc/track
+   %t - title
  *)
+let file_name_guesses = List.map [
+                  "%a %d %n %t","(.*)[dD][\\s\\.-]*(\\d+)[\\s\\.\\)_-]*[tT][\\s\\.-]*(\\d+)[\\s\\.-]*(.*)";
+                  "%d %n %t","[dD]?[\\s\\.-]*(\\d+)[\\s\\.\\)_-]*[tT]?[\\s\\.-]*(\\d+)[\\s\\.-]*(.*)";
+                  "%a %N %t","(.+)[\\s\\.-]*(\\d{3})[\\s\\.\\)_-]*(.*)";
+                  "%N %t","[\\s\\.-]*(\\d{1,3})[\\s\\.\\)_-]*(.+?)";
+                  "%t","(.+)";
+                ] ~f:(fun (expr, re) -> (expr,Regex.create_exn re))
+
+let guess_fields_from_file_name str =
+  List.fold file_name_guesses ~init:[]
+            ~f:(fun seed (expr, re) ->
+                match Regex.find_submatches re str with
+                | Ok s -> (expr,s) :: seed
+                | Error _ -> seed
+               )
+
+
 let guess_field str =
   str
-
-
-(* input is assumed to be a list of file names. Try to figure out fields by diffing them
-*)
-let guess_fields_from_file_name lines =
-  ()
 
 
 (* try to extract dates from strings, and return it in YY-MM-DD format. User input might
@@ -33,8 +53,11 @@ let guess_date str =
 (* drop extra spaces; capitalize; decode; remove "_#*"; *)
 let split_pats = Regex.create_exn "[ _%#\\*]+"
 
+let urldecode str = try Netencoding.Url.decode str with
+                      | _ -> str
+
 let normalize str =
-  let parts = Regex.split split_pats str in
+  let parts = Regex.split split_pats (urldecode str) in
   String.concat ~sep:" " (List.filter parts ~f:(fun x -> (String.length x)>0) |>
                             List.map  ~f:String.lowercase |>
                             List.map ~f:String.capitalize)
