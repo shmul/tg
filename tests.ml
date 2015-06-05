@@ -23,14 +23,30 @@ let matches () =
                "%a %d %n %t","ph131230d1_02_Bathtub_Gin";
                "%a %d %n %t","ph131228d1_02_Stealing_Time_From_The_Faulty_Plan";
                "%d %n %t","2-03 Been So Long.mp3";
+
               ] in
   List.iter pairs ~f:(fun (expected, raw)->
                       match Tg.guess_fields_from_file_name raw with
-                        | (expr,_) :: tl -> as_eq expected expr
+                        | (expr,_) :: _ ->
+                           as_eq expected expr
                         | _ -> ())
+
+let dates () =
+  let pairs = [
+      "69-12-30","1969-12-30";
+      "69-12-30","12/30/1969";
+      "69-12-30","30_12_69";
+      "69-12-30","1969 30 12";
+      "13-12-30","ph131230d1_02_Bathtub_Gin";
+    ] in
+  List.iter pairs ~f:(fun (expected, raw)->
+                      as_eq expected (Tg.guess_date raw)
+                      )
 
 let test_set = [
     "normalize", `Quick, norm;
+    "matches", `Quick, matches;
+(*    "date", `Quick, dates; *)
   ]
 
 let () =
