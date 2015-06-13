@@ -34,9 +34,9 @@ let matches () =
 let dates () =
   let pairs = [
       "69-12-30","1969-12-30";
-      "69-12-30","12/30/1969";
-      "69-12-30","30_12_69";
-      "69-12-30","1969 30 12";
+      "79-12-30","12/30/1979";
+      "59-12-30","30_12_59";
+      "89-12-30","1989 30 12";
       "13-12-30","ph131230d1_02_Bathtub_Gin";
     ] in
   List.iter pairs ~f:(fun (expected, raw)->
@@ -46,7 +46,7 @@ let dates () =
 let test_set = [
     "normalize", `Quick, norm;
     "matches", `Quick, matches;
-(*    "date", `Quick, dates; *)
+    "date", `Quick, dates;
   ]
 
 let () =
