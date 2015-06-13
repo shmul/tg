@@ -1,5 +1,6 @@
 *~
 *.native
+*.byte
 _build/
 _tests/
 *.log

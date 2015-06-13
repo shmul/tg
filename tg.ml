@@ -48,47 +48,61 @@ let guess_field str =
 
 (* try to extract dates from a string, and return it in YY-MM-DD format. User input might be required.
 *)
-let date_delims = "\\s\\.\\_:\\-"
-let date_guesses_1 = Regex.create_exn ("\\d[\\d"^date_delims^"]+")
-
-let yy_mm_dd ?year d1 d2 d3 =
-  Some ""
+let date_delims = "\\s\\.\\_/:-"
+let guess_date_pat_1 = Regex.create_exn (sprintf "(\\d{1,4})[%s]+(\\d{1,4})[%s]+(\\d{1,4})" date_delims date_delims)
 
 let guess_date_1 str =
-  let digits = Regex.split (Regex.create_exn ("["^date_delims^"]+")) str in
   let sub s pos len = (String.sub ~pos:pos ~len:len s) in
-  try
-    match digits with
-    | d1::d2::d3::[] -> yy_mm_dd d1 d2 d3
-    | d1::d2::[] ->
-       let yy_mm_dd_helper s t = yy_mm_dd s (sub t 0 2) (sub t 2 2) in
-       if (String.length d2)=4 then
-         yy_mm_dd_helper d1 d2
-       else if (String.length d1)=4 then
-         yy_mm_dd_helper d2 d1
-       else
-         None
-    | d1::[] ->
-       (match (String.length d1) with
+  let matches r s = Regex.matches (Regex.create_exn r) s in
+  let guess_mm_dd u v =
+    if (int_of_string v)>12 then
+      (u,v)
+    else
+      (v,u) in
+  let guess_yy t u v =
+    if (int_of_string v)>31 then
+      (v,t,u)
+    else if (int_of_string u)>31 then
+      (u,t,v)
+    else
+      (t,u,v) in
+
+  let return y d2 d3 =
+    let m,d = guess_mm_dd d2 d3 in
+    Some (sprintf "%s-%s-%s" y m d) in
+  let return_guess d1 d2 d3 =
+    let y,u,v = guess_yy d1 d2 d3 in
+    return y u v in
+  match Regex.find_submatches guess_date_pat_1 str with
+  | Error _ -> (match (String.length str) with (* no delims *)
        | 8 ->
           (* it can be yyyy---- or ----yyyy ,where yyyy is matched against 20yy or 19yy *)
-          if Regex.matches (Regex.create_exn "(20|19)\\d{6}") d1 then
-            yy_mm_dd ~year:1 (sub d1 0 4) (sub d1 4 2) (sub d1 6 2)
-          else if Regex.matches (Regex.create_exn "\\d{4}(20|19)\\d{2}") d1 then
-           yy_mm_dd ~year:3 (sub d1 0 2) (sub d1 2 2) (sub d1 4 4)
+          if matches "(20|19)\\d{6}" str then
+            return (sub str 2 2) (sub str 4 2) (sub str 6 2)
+          else if matches "\\d{4}(20|19)\\d{2}" str then
+            return (sub str 6 2) (sub str 0 2) (sub str 2 2)
           else None
-       | 6 -> yy_mm_dd (sub d1 0 2) (sub d1 2 2) (sub d1 4 2)
+       | 6 -> return_guess (sub str 0 2) (sub str 2 2) (sub str 4 2)
        | _ -> None)
-    | _ -> None
-  with Failure _ -> None
+
+  | Ok mts ->
+     match mts with
+              | [| _; Some d1; Some d2; Some d3 |] ->
+                 if matches "(20|19)\\d{2}" d1 then
+                   return (sub d1 2 2) d2 d3
+                 else if matches "(20|19)\\d{2}" d3 then
+                   return (sub d3 2 2) d2 d1
+                 else
+                   return_guess d1 d3 d2
+              | _ -> Some "foo"
+
 
 let guess_date str =
-  if Regex.matches date_guesses_1 str then
-    match guess_date_1 str with
-    | Some x -> x
-    | None -> str
-  else
-    str
+  match Regex.find_first (Regex.create_exn (sprintf "(\\d[%s]*)+" date_delims)) str with
+  | Ok s ->  (match guess_date_1 s with
+             | Some x -> x
+             | None -> str)
+  | Error _ -> str
 
 (* drop extra spaces; capitalize; decode; remove "_#*"; *)
 let split_pats = Regex.create_exn "[ _%#\\*]+"
