@@ -1,3 +1,7 @@
+open Core.Std
+module Regex = Re2.Regex
+
+
 type tag =
   | Album
   | Artist
@@ -27,28 +31,25 @@ let string_of_tag t = match t with
   | Year -> "Year"
 
 let single_file_tags fname =
+  let open Core.Std.Caml in
   let f = Taglib.File.open_file `Autodetect fname in
   let prop = Taglib.File.properties f in
+  let tags = Core.Std.Hashtbl.Poly.create () ~size:(Hashtbl.length prop) in
   Taglib.File.close_file f;
   Hashtbl.fold
     (fun k v seed ->
-     Hashtbl.add seed (tag_of_string k) (String.concat "::" v);
+     Core.Std.Hashtbl.set seed ~key:(tag_of_string k) ~data:(String.concat "::" v);
      seed
-    ) prop (Hashtbl.create (Hashtbl.length prop))
+    ) prop tags
 
 
 let print_tags fname =
   let tags = single_file_tags fname in
   Hashtbl.iter
-    (fun k v ->
-     Printf.printf " - %s : %s\n" (string_of_tag k) v
-    )
+    ~f:(fun ~key ~data ->
+        printf " - %s : %s\n" (string_of_tag key) data
+       )
     tags
-
-open Core.Std
-
-
-module Regex = Re2.Regex
 
 
 type track = {
