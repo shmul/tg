@@ -69,7 +69,7 @@ let guess_date_1 str =
 
   let return y d2 d3 =
     let m,d = guess_mm_dd d2 d3 in
-    Some (sprintf "%s-%s-%s" y m d) in
+    Some (sprintf "%02d-%02d-%02d" (int_of_string y) (int_of_string m) (int_of_string d)) in
   let return_guess d1 d2 d3 =
     let y,u,v = guess_yy d1 d2 d3 in
     return y u v in

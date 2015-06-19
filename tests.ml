@@ -46,6 +46,8 @@ let dates () =
       "76-06-10","gd76-06-10Berthad3t05";
       "87-10-21","jgb87-10-21d1t03";
       "70-06-04","C$NY  06-04-1970 NY (SBD)";
+      "99-07-23","David Nelson Band, 7 23 99 two";
+      "99-07-23","David Nelson Band, 7-23-99 two";
     ] in
   List.iter pairs ~f:(fun (expected, raw)->
                       as_eq expected (Tg.guess_date raw)
