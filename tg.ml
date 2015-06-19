@@ -1,8 +1,3 @@
-open Core.Std
-
-
-module Regex = Re2.Regex
-
 type tag =
   | Album
   | Artist
@@ -12,6 +7,48 @@ type tag =
   | Title
   | Rest
   | Year
+
+
+let tag_of_string s = match s with
+    | "TITLE" -> Title
+    | "ALBUM" -> Album
+    | "TRACKNUMBER" -> Track
+    | "ARTIST" -> Artist
+    | _ -> Rest
+
+let string_of_tag t = match t with
+  | Album -> "Album"
+  | Artist -> "Artist"
+  | Track -> "Track"
+  | Disc -> "Disc"
+  | Disctrack -> "Disctrack"
+  | Title -> "Title"
+  | Rest -> "Rest"
+  | Year -> "Year"
+
+let single_file_tags fname =
+  let f = Taglib.File.open_file `Autodetect fname in
+  let prop = Taglib.File.properties f in
+  Taglib.File.close_file f;
+  Hashtbl.fold
+    (fun k v seed ->
+     Hashtbl.add seed (tag_of_string k) (String.concat "::" v);
+     seed
+    ) prop (Hashtbl.create (Hashtbl.length prop))
+
+
+let print_tags fname =
+  let tags = single_file_tags fname in
+  Hashtbl.iter
+    (fun k v ->
+     Printf.printf " - %s : %s\n" (string_of_tag k) v
+    )
+    tags
+
+open Core.Std
+
+
+module Regex = Re2.Regex
 
 
 type track = {
@@ -184,6 +221,22 @@ let guess =
                                    );
     )
 
+let show =
+  Command.basic
+    ~summary: "Show file tags"
+    Command.Spec.(empty
+		  +> anon (maybe ("file" %: readable_file)))
+		(fun file () ->
+     match file with
+     | Some x -> print_tags x
+     | None -> ()
+    )
+
 let () =
   Command.run ~version:"0.1"
-			        guess
+	            (Command.group
+                 ~summary: "tagging toolkit"
+			           ["guess",guess;
+			            "show",show;
+                 ]
+		          )
