@@ -1,5 +1,17 @@
 open Core.Std
+
+
 module Regex = Re2.Regex
+
+type tag =
+  | Album
+  | Artist
+  | Track
+  | Disc
+  | Disctrack
+  | Title
+  | Rest
+  | Year
 
 
 type track = {
@@ -23,16 +35,17 @@ type track = {
    %N - disc/track
    %t - title
  *)
-let file_name_guesses = List.map [
-                  "%a %d %n","(.*)[dD][\\s\\._-]*(\\d)[\\s\\.\\)tT_-]+(\\d+)[\\s\\.-]*";
-                  "%a %d %n %t","(.*)[dD][\\s\\._-]*(\\d)[\\s\\.\\)tT_-]+(\\d+)[\\s\\.-]*(.+)";
-                  "%d %n %t","[dD][\\s\\._-]*(\\d+)[\\s\\.\\)_-]*[tT][\\s\\.-]*(\\d+)[\\s\\.-]*(.*)";
-                  "%d %n %t","(\\d)[\\s\\.\\)_-]+(\\d+)[\\s\\.-]+(.*)";
-                  "%a %N","(.+?)(\\d{1,3})";
-                  "%a %N %t","(.+)[\\s\\.-]*(\\d{3})[\\s\\.\\)_-]+(.*)";
-                  "%N %t","[\\s\\.-]*(\\d{1,3})[\\s\\.\\)_-]*(.+)";
-                  "%t","(.+)";
-                ] ~f:(fun (expr, re) -> ( expr,Regex.create_exn ("^"^re^"$") ))
+let file_name_guesses =
+  List.map [
+      [Rest;Disc;Track],"(.*)[dD][\\s\\._-]*(\\d)[\\s\\.\\)tT_-]+(\\d+)[\\s\\.-]*";
+      [Rest;Disc;Track;Title],"(.*)[dD][\\s\\._-]*(\\d)[\\s\\.\\)tT_-]+(\\d+)[\\s\\.-]*(.+)";
+      [Disc;Track;Title],"[dD][\\s\\._-]*(\\d+)[\\s\\.\\)_-]*[tT][\\s\\.-]*(\\d+)[\\s\\.-]*(.*)";
+      [Disc;Track;Title],"(\\d)[\\s\\.\\)_-]+(\\d+)[\\s\\.-]+(.*)";
+      [Rest;Disctrack],"(.+?)(\\d{1,3})";
+      [Rest;Disctrack;Title],"(.+)[\\s\\.-]*(\\d{3})[\\s\\.\\)_-]+(.*)";
+      [Disctrack;Title],"[\\s\\.-]*(\\d{1,3})[\\s\\.\\)_-]*(.+)";
+      [Track],"(.+)";
+    ] ~f:(fun (expr, re) -> ( expr,Regex.create_exn ("^"^re^"$") ))
 
 let guess_fields_from_file_name str =
   List.fold file_name_guesses ~init:[]
@@ -116,6 +129,20 @@ let normalize str =
   String.concat ~sep:" " (List.filter parts ~f:(fun x -> (String.length x)>0) |>
                             List.map  ~f:String.lowercase |>
                             List.map ~f:String.capitalize)
+(*
+let single_file_tags fname =
+  let f = Taglib.File.open_file `Autodetect fname in
+  let prop = Taglib.File.properties f in
+  Hashtbl.iter
+    (fun t v ->
+      let v = String.concat " / " v in
+      Printf.printf " - %s : %s\n%!" t v)
+    prop;
+  Hashtbl.replace prop "PUBLISHER" ["foobarlol"];
+  Taglib.File.set_properties f prop;
+  ignore(Taglib.File.file_save f);
+  Taglib.File.close_file f
+ *)
 
 (* command line handling *)
 let readable_file =

@@ -1,6 +1,16 @@
 open Core.Std
+open Tg
 
 let as_eq a b = OUnit.assert_equal a b ~printer:(fun x -> sprintf "'%s'" x)
+let rec eq_list a b =
+  match (a,b) with
+  | ([],[]) -> true
+  | (hda :: tla,hdb :: tlb) ->
+     if hda=hdb then
+       eq_list tla tlb
+     else
+       false
+  | _ -> false
 
 let norm () =
   let pairs = ["Hello Cruel World","hello cruel World";
@@ -16,20 +26,22 @@ let norm () =
 
 
 let matches () =
-  let pairs = ["%N %t","08 Mountain Jam";
-               "%N %t","8. Mountain Jam";
-               "%N %t","8) Mountain Jam";
-               "%a %N","Tedeschi Trucks Band 2013-10-17 NPR03";
-               "%a %d %n %t","ph131230d1_02_Bathtub_Gin";
-               "%a %d %n %t","ph131228d1_02_Stealing_Time_From_The_Faulty_Plan";
-               "%d %n %t","2-03 Been So Long";
-               "%a %d %n","gd90-09-20d2t02";
-               "%a %d %n","ABB1973-12-31d4t01";
-              ] in
+  let pairs = [
+      [Disctrack;Title],"08 Mountain Jam";
+      [Disctrack;Title],"8. Mountain Jam";
+      [Disctrack;Title],"8) Mountain Jam";
+      [Rest;Disctrack],"Tedeschi Trucks Band 2013-10-17 NPR03";
+      [Rest;Disc;Track;Title],"ph131230d1_02_Bathtub_Gin";
+      [Rest;Disc;Track;Title],"ph131228d1_02_Stealing_Time_From_The_Faulty_Plan";
+      [Disc;Track;Title],"2-03 Been So Long";
+      [Rest;Disc;Track],"gd90-09-20d2t02";
+      [Rest;Disc;Track],"ABB1973-12-31d4t01";
+    ] in
   List.iter pairs ~f:(fun (expected, raw)->
                       match Tg.guess_fields_from_file_name raw with
                         | (expr,_) :: _ ->
-                           as_eq expected expr
+                           if not (eq_list expected expr) then
+                             OUnit.assert_failure (sprintf "failed on '%s'\n" raw)
                         | _ -> ())
 
 let dates () =
@@ -54,7 +66,7 @@ let dates () =
       "95-06-02","Robert Jr. Lockwood 1995-06-02";
     ] in
   List.iter pairs ~f:(fun (expected, raw)->
-                      as_eq expected (Tg.guess_date raw)
+                      as_eq expected (guess_date raw)
                       )
 
 let test_set = [
