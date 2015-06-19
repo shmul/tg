@@ -22,8 +22,9 @@ let matches () =
                "%a %N","Tedeschi Trucks Band 2013-10-17 NPR03";
                "%a %d %n %t","ph131230d1_02_Bathtub_Gin";
                "%a %d %n %t","ph131228d1_02_Stealing_Time_From_The_Faulty_Plan";
-               "%d %n %t","2-03 Been So Long.mp3";
-
+               "%d %n %t","2-03 Been So Long";
+               "%a %d %n","gd90-09-20d2t02";
+               "%a %d %n","ABB1973-12-31d4t01";
               ] in
   List.iter pairs ~f:(fun (expected, raw)->
                       match Tg.guess_fields_from_file_name raw with
@@ -48,6 +49,9 @@ let dates () =
       "70-06-04","C$NY  06-04-1970 NY (SBD)";
       "99-07-23","David Nelson Band, 7 23 99 two";
       "99-07-23","David Nelson Band, 7-23-99 two";
+      "90-09-20","gd90-09-20d2t02.flac";
+      "73-12-31","ABB1973-12-31d4t01";
+      "95-06-02","Robert Jr. Lockwood 1995-06-02";
     ] in
   List.iter pairs ~f:(fun (expected, raw)->
                       as_eq expected (Tg.guess_date raw)

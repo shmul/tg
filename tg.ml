@@ -24,6 +24,7 @@ type track = {
    %t - title
  *)
 let file_name_guesses = List.map [
+                  "%a %d %n","(.*)[dD][\\s\\._-]*(\\d)[\\s\\.\\)tT_-]+(\\d+)[\\s\\.-]*";
                   "%a %d %n %t","(.*)[dD][\\s\\._-]*(\\d)[\\s\\.\\)tT_-]+(\\d+)[\\s\\.-]*(.+)";
                   "%d %n %t","[dD][\\s\\._-]*(\\d+)[\\s\\.\\)_-]*[tT][\\s\\.-]*(\\d+)[\\s\\.-]*(.*)";
                   "%d %n %t","(\\d)[\\s\\.\\)_-]+(\\d+)[\\s\\.-]+(.*)";
@@ -78,7 +79,7 @@ let guess_date_1 str =
        | 8 ->
           (* it can be yyyy---- or ----yyyy ,where yyyy is matched against 20yy or 19yy *)
           if matches "(20|19)\\d{6}" str then
-            return (sub str 2 2) (sub str 4 2) (sub str 6 2)
+            return (sub str 2 2) (sub str 6 2) (sub str 4 2)
           else if matches "\\d{4}(20|19)\\d{2}" str then
             return (sub str 6 2) (sub str 0 2) (sub str 2 2)
           else None
@@ -89,7 +90,7 @@ let guess_date_1 str =
      match mts with
               | [| _; Some d1; Some d2; Some d3 |] ->
                  if matches "(20|19)\\d{2}" d1 then
-                   return (sub d1 2 2) d2 d3
+                   return (sub d1 2 2) d3 d2
                  else if matches "(20|19)\\d{2}" d3 then
                    return (sub d3 2 2) d2 d1
                  else
