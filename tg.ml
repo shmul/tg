@@ -11,16 +11,17 @@ type tag =
   | Title
   | Rest
   | Year
+  | Location
 
 
-let tag_of_string s = match s with
+let tag_of_string = function
     | "TITLE" -> Title
     | "ALBUM" -> Album
     | "TRACKNUMBER" -> Track
     | "ARTIST" -> Artist
     | _ -> Rest
 
-let string_of_tag t = match t with
+let string_of_tag = function
   | Album -> "Album"
   | Artist -> "Artist"
   | Track -> "Track"
@@ -29,6 +30,7 @@ let string_of_tag t = match t with
   | Title -> "Title"
   | Rest -> "Rest"
   | Year -> "Year"
+  | Location -> "Location"
 
 let single_file_tags fname =
   let open Core.Std.Caml in
@@ -38,7 +40,8 @@ let single_file_tags fname =
   Taglib.File.close_file f;
   Hashtbl.fold
     (fun k v seed ->
-     Core.Std.Hashtbl.set seed ~key:(tag_of_string k) ~data:(String.concat "::" v);
+     let data = (String.concat "::" v) in
+     Core.Std.Hashtbl.set seed ~key:(tag_of_string k) ~data;
      seed
     ) prop tags
 
@@ -93,6 +96,13 @@ let guess_fields_from_file_name str =
                 | Error _ -> seed
                ) |> List.rev
 
+let extract_disctrack dt =
+  let sub s pos len = (String.sub ~pos:pos ~len:len s) in
+  (* these are usually dnn where d is the disc number and nn the track number, if not
+  it'll be interpreted as a track number*)
+  match (String.length dt) with
+  | 3 -> (Some (int_of_string (sub dt 0 1)),Some (int_of_string (sub dt 1 2)))
+  | _ -> (None, Some (int_of_string dt))
 
 let guess_field str =
   str
@@ -167,20 +177,6 @@ let normalize str =
   String.concat ~sep:" " (List.filter parts ~f:(fun x -> (String.length x)>0) |>
                             List.map  ~f:String.lowercase |>
                             List.map ~f:String.capitalize)
-(*
-let single_file_tags fname =
-  let f = Taglib.File.open_file `Autodetect fname in
-  let prop = Taglib.File.properties f in
-  Hashtbl.iter
-    (fun t v ->
-      let v = String.concat " / " v in
-      Printf.printf " - %s : %s\n%!" t v)
-    prop;
-  Hashtbl.replace prop "PUBLISHER" ["foobarlol"];
-  Taglib.File.set_properties f prop;
-  ignore(Taglib.File.file_save f);
-  Taglib.File.close_file f
- *)
 
 (* command line handling *)
 let readable_file =
@@ -226,8 +222,33 @@ let show =
   Command.basic
     ~summary: "Show file tags"
     Command.Spec.(empty
-		  +> anon (maybe ("file" %: readable_file)))
-		(fun file () ->
+                  +> flag "-a" (optional string) ~doc:"artist Artist"
+                  +> flag "-l" (optional string) ~doc:"location Location (will be prefixed by date if found)"
+                  +> flag "-b" (optional string) ~doc:"album Album name"
+                  +> flag "-t" (optional string) ~doc:"title Title name"
+                  +> flag "-n" (optional int) ~doc:"track Track number"
+                  +> flag "-d" (optional int) ~doc:"disc Disc number"
+                  +> flag "-e" no_arg ~doc:"erase Erase all non specified tags"
+		              +> anon (maybe ("file" %: readable_file))
+  )
+		(fun ar lo al ti tr di erase file () ->
+     let cmd_line_tags = Hashtbl.Poly.create () ~size:6 in
+     let string_of_int_opt = function
+       | Some t -> Some (string_of_int t)
+       | None -> None in
+     let set_tag = function
+       | (t,Some vv) -> Hashtbl.set cmd_line_tags ~key:t ~data:vv
+       | (_,None) -> () in
+
+     List.iter ~f:set_tag
+               [Artist,ar;
+                Location,lo;
+                Album,al;
+                Title,ti;
+                Track,string_of_int_opt tr;
+                Disc,string_of_int_opt di;
+               ];
+
      match file with
      | Some x -> print_tags x
      | None -> ()

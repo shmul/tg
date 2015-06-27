@@ -8,7 +8,7 @@ type tag =
   | Title
   | Rest
   | Year
-
+  | Location
 
 val guess_field : string -> string
 
