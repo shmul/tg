@@ -12,6 +12,7 @@ type tag =
   | Rest
   | Year
   | Location
+  | Date
 
 
 let tag_of_string = function
@@ -31,6 +32,7 @@ let string_of_tag = function
   | Rest -> "Rest"
   | Year -> "Year"
   | Location -> "Location"
+  | Date -> "Date"
 
 let single_file_tags fname =
   let open Core.Std.Caml in
@@ -46,11 +48,12 @@ let single_file_tags fname =
     ) prop tags
 
 
-let print_tags fname =
-  let tags = single_file_tags fname in
+let print_tags label tags =
+  if (Hashtbl.length tags)>0 then
+    printf "%s:\n" label;
   Hashtbl.iter
     ~f:(fun ~key ~data ->
-        printf " - %s : %s\n" (string_of_tag key) data
+        printf "- %s : %s\n" (string_of_tag key) data
        )
     tags
 
@@ -69,12 +72,6 @@ type track = {
    free text after numbers as title;
    5-8 digits - date;
    3 digits - disc and track
-
-   %a - album
-   %d - disc
-   %n - track
-   %N - disc/track
-   %t - title
  *)
 let file_name_guesses =
   List.map [
@@ -92,7 +89,7 @@ let guess_fields_from_file_name str =
   List.fold file_name_guesses ~init:[]
             ~f:(fun seed (expr, re) ->
                 match Regex.find_submatches re str with
-                | Ok m -> (expr,m) :: seed
+                | Ok m -> (expr,Array.filteri ~f:(fun i _ -> i>0) m) :: seed
                 | Error _ -> seed
                ) |> List.rev
 
@@ -101,12 +98,8 @@ let extract_disctrack dt =
   (* these are usually dnn where d is the disc number and nn the track number, if not
   it'll be interpreted as a track number*)
   match (String.length dt) with
-  | 3 -> (Some (int_of_string (sub dt 0 1)),Some (int_of_string (sub dt 1 2)))
-  | _ -> (None, Some (int_of_string dt))
-
-let guess_field str =
-  str
-
+  | 3 -> (Some (sub dt 0 1),Some (sub dt 1 2))
+  | _ -> (None, Some dt)
 
 (* try to extract dates from a string, and return it in YY-MM-DD format. User input might be required.
 *)
@@ -166,6 +159,40 @@ let guess_date str =
              | None -> str)
   | Error _ -> str
 
+
+let guess_fields str =
+  let file_name_guesses = Hashtbl.Poly.create () ~size:6 in
+  let set k d = Hashtbl.set file_name_guesses ~key:k ~data:d in
+  let guesses = guess_fields_from_file_name str in
+  (match guesses with
+  | (expr,matches) :: _ ->
+     List.iter2_exn expr (Array.to_list matches)
+                    ~f:(fun t m ->
+                        match m with
+                        | Some mm -> (match t with
+                                      | Disctrack ->
+                                         (match extract_disctrack mm with
+                                          | (Some disc,Some track) ->
+                                             set Disc disc;
+                                             set Track track
+                                          | (None,Some track) ->
+                                             set Track track
+                                          | (_,_) -> ()
+                                         )
+                                      | _ -> set t mm
+                                     )
+                        | None -> ();
+                       );
+  | _ -> ()
+  );
+  set Date (guess_date str);
+  file_name_guesses
+
+let string_of_guess_fields fields =
+  Hashtbl.fold ~init:[] ~f:(fun ~key ~data seed ->
+                           (sprintf "%s: %s" (string_of_tag key) data)::seed) fields |>
+    String.concat ~sep:","
+
 (* drop extra spaces; capitalize; decode; remove "_#*"; *)
 let split_pats = Regex.create_exn "[ _%#\\*]+"
 
@@ -201,7 +228,7 @@ let guess =
      let nop s = s in
      let func =
        if field then
-         guess_field
+         fun (s) -> guess_fields s |> string_of_guess_fields
        else if date then
          guess_date
        else if norm then
@@ -239,7 +266,6 @@ let show =
      let set_tag = function
        | (t,Some vv) -> Hashtbl.set cmd_line_tags ~key:t ~data:vv
        | (_,None) -> () in
-
      List.iter ~f:set_tag
                [Artist,ar;
                 Location,lo;
@@ -250,7 +276,14 @@ let show =
                ];
 
      match file with
-     | Some x -> print_tags x
+     | Some x ->
+        let filename_fields = guess_fields (Filename.basename x) in
+        let dirname_fields = guess_fields (Filename.dirname x |> Filename.basename) in
+        List.iter ~f:(fun (label,tags) -> print_tags label tags)
+                  ["file",single_file_tags x;
+                   "basename",filename_fields;
+                   "dirname",dirname_fields;
+                  ]
      | None -> ()
     )
 

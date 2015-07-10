@@ -9,8 +9,7 @@ type tag =
   | Rest
   | Year
   | Location
-
-val guess_field : string -> string
+  | Date
 
 val guess_date : string -> string
 
