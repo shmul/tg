@@ -66,7 +66,9 @@ let dates () =
       "95-06-02","Robert Jr. Lockwood 1995-06-02";
     ] in
   List.iter pairs ~f:(fun (expected, raw)->
-                      as_eq expected (guess_date raw)
+                      as_eq expected (match guess_date raw with
+                                     | Some x -> x
+                                     | None -> "")
                       )
 
 let test_set = [
