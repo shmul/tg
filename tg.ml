@@ -248,45 +248,57 @@ type choice =
   | Default
   | Pointer of int
   | Literal of string
+  | File
   | Quit
+  | All
 
-let rec read_user_choice field_indices =
-  printf "> ";
-  flush_all ();
-  Scanf.bscanf Scanf.Scanning.stdin "%s"
-               (fun x -> if (String.length x)=0 then
-                           Default
-                         else if (x="q" || x="Q") then
-                           Quit
-                         else if (String.get x 0)='*' then (
-                           let c = int_of_char (String.get x 1) in
-                           if SI.mem field_indices (c+1) then
-                             Pointer c
-                           else (
-                             printf "Illegal index. Please choose again.\n";
-                             read_user_choice field_indices
-                           )
-                         ) else
-                           Literal x)
 
-let display_choices fields t default =
-  (match default with
-    | Some x -> printf "%-12s: %s\n" (string_of_tag t) x
-    | None -> ()
-  );
-  let field_indices = SI.empty in
-  let show_indices idx (label,tags) =
-    match Hashtbl.find tags t with
-    | Some x ->
-       (match default with
-        | Some df -> if x<>df then (
-                       printf "  %-10s: %d) %s\n" label (idx+1) x;
-                       ignore (SI.add field_indices (idx+1))
-                     )
-        | None -> ())
-    | None -> () in
-  List.iteri ~f:show_indices fields;
-  ignore (read_user_choice field_indices)
+let user_choice fields t default =
+  let rec read_user_choice field_indices =
+    printf "> ";
+    let x = read_line () in
+    if (String.length x)=0 then
+      Default
+    else if (x="q" || x="Q") then
+      Quit
+    else if (x="!" || x="a" || x="A") then
+      All
+    else if (String.get x 0)='*' then (
+      let c = String.sub x ~pos:1 ~len:1 |> int_of_string in
+      printf "%d\n" c;
+      if SI.mem field_indices c then
+        Pointer c
+      else (
+        printf "Invalid index. Please choose again %s\n"
+               (SI.elements field_indices |> List.to_string ~f:string_of_int);
+        read_user_choice field_indices
+      )
+    ) else
+      Literal x in
+
+  let helper () =
+    (match default with
+     | Some x -> printf "%-12s: %s\n" (string_of_tag t) x
+     | None -> ()
+    );
+    let show_indices idx seed (label,tags) =
+      match Hashtbl.find tags t with
+      | Some x ->
+         (match default with
+          | Some df -> if x<>df then (
+                         printf "  %-10s: %d) %s\n" label (idx+1) x;
+                         SI.add seed (idx+1)
+                       ) else
+                         seed
+          | None -> seed)
+      | None -> seed in
+    let field_indices = List.foldi ~init:SI.empty ~f:show_indices fields in
+    read_user_choice field_indices in
+  let c = helper () in
+  match c with
+  | Quit -> printf "Bye.\n";
+            exit 0;
+  | _ -> (t,c)
 
 
 let find_first_non_empty fields t =
@@ -294,26 +306,39 @@ let find_first_non_empty fields t =
                 fields
 
 let global_choice fields =
+  printf "All: Aa! | Quit: Qq\n";
   let artist = find_first_non_empty fields Artist in
   let album = find_first_non_empty fields Album in
   let location = find_first_non_empty fields Location in
   let date = find_first_non_empty fields Date in
-  display_choices fields Artist artist;
-  (match (date,location) with
-   | (Some d,Some l) -> display_choices fields Album (Some (d^" - "^l))
-   | _ -> display_choices fields Album album)
+  [
+    user_choice fields Artist artist;
+    match (date,location) with
+    | (Some d,Some l) -> user_choice fields Album (Some (d^" - "^l))
+    | _ -> user_choice fields Album album
+  ]
 
 
 let pertrack_choice fields =
-  List.iter ~f:(fun t ->
-                display_choices fields t (find_first_non_empty fields t)
-               )
-            [Title;Disc]
+  List.map ~f:(fun t -> user_choice fields t (find_first_non_empty fields t) )
+           [Title;Disc]
 
 (* command line handling *)
 let readable_file =
   Command.Spec.Arg_type.create
     (fun fn -> In_channel.with_file fn ~f:(fun _ -> fn))
+
+let lines_of f =
+  let ic = open_in f in
+  let rec loop lines =
+    try
+      loop ((input_line ic) :: lines)
+    with e ->
+      close_in_noerr ic;
+      raise e in
+  let lines = loop [] |> List.rev in
+  close_in_noerr ic;
+  lines
 
 let inchan = function
   | None -> In_channel.create "/dev/null"
@@ -364,9 +389,10 @@ let show =
                   +> flag "-d" (optional int) ~doc:"disc Disc number"
                   +> flag "-e" no_arg ~doc:"erase Erase all non specified tags"
                   +> flag "-p" no_arg ~doc:"print Print all fields"
+                  +> flag "-f" (optional file) ~doc:"file Track names from a file"
 		              +> anon (maybe ("file" %: readable_file))
   )
-		(fun ar lo al ti tr di erase print file () ->
+		(fun ar lo al ti tr di erase print tracks file () ->
      let cmd_line_tags = Hashtbl.Poly.create () ~size:6 in
      let string_of_int_opt = function
        | Some t -> Some (string_of_int t)
@@ -391,6 +417,9 @@ let show =
             | None -> empty_tags in
         let filename_fields = guess_fields (Filename.basename x |> Filename.chop_extension) in
         let dirname_fields = guess_fields (Filename.dirname x |> Filename.basename) in
+        let file_track_names = match tracks with
+          | Some x -> lines_of x
+          | None -> [] in
         let fields = [
             "cmd line",cmd_line_tags;
             "original",orig_fields;
@@ -402,12 +431,8 @@ let show =
         if print then
           List.iteri ~f:(fun idx (label,tags) -> print_tags idx label tags) fields
         else (
-          global_choice fields;
-          pertrack_choice fields
+          ignore (List.append  (pertrack_choice fields) (global_choice fields))
         )
-
-
-
      | None -> ()
     )
 
