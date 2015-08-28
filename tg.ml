@@ -1,6 +1,6 @@
 open Core.Std
 module Regex = Re2.Regex
-
+module SI = Set.Make(Int)
 
 type tag =
   | Album
@@ -244,22 +244,49 @@ accept the default; *N to choose from the calculated fields; or to type an alter
 Per track fields are shown afterwards; the user can choose an empty string to accept the default; *N to choose from the calculated; '!' to accept the last selection (symbolically) for all; or to type something
  *)
 
-let display_fields fields t default =
+type choice =
+  | Default
+  | Pointer of int
+  | Literal of string
+  | Quit
+
+let rec read_user_choice field_indices =
+  printf "> ";
+  flush_all ();
+  Scanf.bscanf Scanf.Scanning.stdin "%s"
+               (fun x -> if (String.length x)=0 then
+                           Default
+                         else if (x="q" || x="Q") then
+                           Quit
+                         else if (String.get x 0)='*' then (
+                           let c = int_of_char (String.get x 1) in
+                           if SI.mem field_indices (c+1) then
+                             Pointer c
+                           else (
+                             printf "Illegal index. Please choose again.\n";
+                             read_user_choice field_indices
+                           )
+                         ) else
+                           Literal x)
+
+let display_choices fields t default =
   (match default with
     | Some x -> printf "%-12s: %s\n" (string_of_tag t) x
     | None -> ()
   );
-  List.iteri ~f:(fun idx (label,tags) ->
-                 match Hashtbl.find tags t with
-                 | Some x ->
-                    (match default with
-                      | Some df -> if x<>df then
-                                     printf "  %-10s  %d) %s\n" label (idx+1) x
-                      | None -> ())
-                 | None -> ()
-                )
-             fields
-
+  let field_indices = SI.empty in
+  let show_indices idx (label,tags) =
+    match Hashtbl.find tags t with
+    | Some x ->
+       (match default with
+        | Some df -> if x<>df then (
+                       printf "  %-10s: %d) %s\n" label (idx+1) x;
+                       ignore (SI.add field_indices (idx+1))
+                     )
+        | None -> ())
+    | None -> () in
+  List.iteri ~f:show_indices fields;
+  ignore (read_user_choice field_indices)
 
 
 let find_first_non_empty fields t =
@@ -271,14 +298,15 @@ let global_choice fields =
   let album = find_first_non_empty fields Album in
   let location = find_first_non_empty fields Location in
   let date = find_first_non_empty fields Date in
-  display_fields fields Artist artist;
-  match (date,location) with
-    | (Some d,Some l) -> display_fields fields Album (Some (d^" - "^l))
-    | _ -> display_fields fields Album album
+  display_choices fields Artist artist;
+  (match (date,location) with
+   | (Some d,Some l) -> display_choices fields Album (Some (d^" - "^l))
+   | _ -> display_choices fields Album album)
+
 
 let pertrack_choice fields =
   List.iter ~f:(fun t ->
-                display_fields fields t (find_first_non_empty fields t)
+                display_choices fields t (find_first_non_empty fields t)
                )
             [Title;Disc]
 
@@ -375,7 +403,7 @@ let show =
           List.iteri ~f:(fun idx (label,tags) -> print_tags idx label tags) fields
         else (
           global_choice fields;
-          pertrack_choice fields;
+          pertrack_choice fields
         )
 
 
