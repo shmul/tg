@@ -81,7 +81,7 @@ let file_name_guesses =
       [Track],"(.+)";
     ] ~f:(fun (expr, re) -> ( expr,Regex.create_exn ("^"^re^"$") ))
 
-let guess_fields_from_file_name str =
+let all_guesses str =
   List.fold file_name_guesses ~init:[]
             ~f:(fun seed (expr, re) ->
                 match Regex.find_submatches re str with
@@ -155,9 +155,9 @@ let guess_date str =
 
 
 let guess_fields str =
-  let file_name_guesses = Hashtbl.Poly.create () ~size:6 in
-  let set k d = Hashtbl.set file_name_guesses ~key:k ~data:d in
-  let guesses = guess_fields_from_file_name str in
+  let str_guesses = Hashtbl.Poly.create () ~size:6 in
+  let set k d = Hashtbl.set str_guesses ~key:k ~data:d in
+  let guesses = all_guesses str in
   (match guesses with
   | (expr,matches) :: _ ->
      List.iter2_exn expr (Array.to_list matches)
@@ -184,7 +184,7 @@ let guess_fields str =
   | Some d -> set Date d;
   | None -> ());
 
-  file_name_guesses
+  str_guesses
 
 let string_of_guess_fields fields =
   Hashtbl.fold ~init:[] ~f:(fun ~key ~data seed ->

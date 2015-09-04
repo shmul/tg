@@ -38,7 +38,7 @@ let matches () =
       [Rest;Disc;Track],"ABB1973-12-31d4t01";
     ] in
   List.iter pairs ~f:(fun (expected, raw)->
-                      match Tg.guess_fields_from_file_name raw with
+                      match Tg.all_guesses raw with
                         | (expr,_) :: _ ->
                            if not (eq_list expected expr) then
                              OUnit.assert_failure (sprintf "failed on '%s'\n" raw)
