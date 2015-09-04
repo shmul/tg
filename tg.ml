@@ -244,21 +244,34 @@ accept the default; *N to choose from the calculated fields; or to type an alter
 Per track fields are shown afterwards; the user can choose an empty string to accept the default; *N to choose from the calculated; '!' to accept the last selection (symbolically) for all; or to type something
  *)
 
+type default_choice =
+  | Tag
+  | Literal of string
+
 type choice =
-  | Default
+  | Default of default_choice
   | Pointer of int
   | Literal of string
   | File
   | Quit
   | All
 
+let find_first_non_empty fields t =
+  List.find_map ~f:(fun (_,tags) -> Hashtbl.find tags t)
+                fields
+
+let default_string fields t default = match default with
+  | Tag -> (match find_first_non_empty fields t with
+            | Some x -> x
+            | None -> "not found")
+  | Literal x -> x
 
 let user_choice fields t default =
   let rec read_user_choice field_indices =
     printf "> ";
     let x = read_line () in
     if (String.length x)=0 then
-      Default
+      Default default
     else if (x="q" || x="Q") then
       Quit
     else if (x="!" || x="a" || x="A") then
@@ -277,20 +290,16 @@ let user_choice fields t default =
       Literal x in
 
   let helper () =
-    (match default with
-     | Some x -> printf "%-12s: %s\n" (string_of_tag t) x
-     | None -> ()
-    );
+    let df = default_string fields t default in
+    printf "%-12s: %s\n" (string_of_tag t) df;
     let show_indices idx seed (label,tags) =
       match Hashtbl.find tags t with
       | Some x ->
-         (match default with
-          | Some df -> if x<>df then (
-                         printf "  %-10s: %d) %s\n" label (idx+1) x;
-                         SI.add seed (idx+1)
-                       ) else
-                         seed
-          | None -> seed)
+         if x<>df then (
+           printf "  %-10s: %d) %s\n" label (idx+1) x;
+           SI.add seed (idx+1)
+         ) else
+           seed
       | None -> seed in
     let field_indices = List.foldi ~init:SI.empty ~f:show_indices fields in
     read_user_choice field_indices in
@@ -300,28 +309,41 @@ let user_choice fields t default =
             exit 0;
   | _ -> (t,c)
 
-
-let find_first_non_empty fields t =
-  List.find_map ~f:(fun (_,tags) -> Hashtbl.find tags t)
-                fields
-
 let global_choice fields =
-  printf "All: Aa! | Quit: Qq\n";
-  let artist = find_first_non_empty fields Artist in
-  let album = find_first_non_empty fields Album in
-  let location = find_first_non_empty fields Location in
-  let date = find_first_non_empty fields Date in
+  (*printf "All: Aa! | Quit: Qq\n";*)
   [
-    user_choice fields Artist artist;
-    match (date,location) with
-    | (Some d,Some l) -> user_choice fields Album (Some (d^" - "^l))
-    | _ -> user_choice fields Album album
+    user_choice fields Artist Tag;
+    match (find_first_non_empty fields Date,find_first_non_empty fields Location) with
+    | (Some d,Some l) -> user_choice fields Album (Literal (d^" - "^l))
+    | _ -> user_choice fields Album Tag
   ]
 
 
 let pertrack_choice fields =
-  List.map ~f:(fun t -> user_choice fields t (find_first_non_empty fields t) )
+  List.map ~f:(fun t -> user_choice fields t Tag)
            [Title;Disc]
+
+
+let apply_choices file fields choices dryrun =
+  printf "%s\n" file;
+  List.iter choices
+            ~f:(fun (t,c) ->
+                let ch = match c with
+                  | Default df -> default_string fields t df
+                  | Pointer p ->
+                     (match List.nth fields (p-1) with
+                      | Some (_,tags) ->
+                         (match Hashtbl.find tags t with
+                          | Some y -> y
+                          | None -> "no such tag"
+                         )
+                      | None -> "pointer mismatch"
+                     )
+                  | Literal l -> l
+                  | File -> "File"
+                  | _ -> "_" in
+                printf "%s: %s\n" (string_of_tag t) ch
+               )
 
 (* command line handling *)
 let readable_file =
@@ -377,9 +399,9 @@ let guess =
                                    );
     )
 
-let show =
+let set =
   Command.basic
-    ~summary: "Show file tags"
+    ~summary: "Set file(s) tags"
     Command.Spec.(empty
                   +> flag "-a" (optional string) ~doc:"artist Artist"
                   +> flag "-l" (optional string) ~doc:"location Location (will be prefixed by date if found)"
@@ -387,12 +409,12 @@ let show =
                   +> flag "-t" (optional string) ~doc:"title Title name"
                   +> flag "-n" (optional int) ~doc:"track Track number"
                   +> flag "-d" (optional int) ~doc:"disc Disc number"
+                  +> flag "-r" no_arg ~doc:"dryrun Dry-run, doesn't set tags"
                   +> flag "-e" no_arg ~doc:"erase Erase all non specified tags"
-                  +> flag "-p" no_arg ~doc:"print Print all fields"
                   +> flag "-f" (optional file) ~doc:"file Track names from a file"
-		              +> anon (maybe ("file" %: readable_file))
+		              +> anon (sequence ("filename" %: readable_file))
   )
-		(fun ar lo al ti tr di erase print tracks file () ->
+		(fun ar lo al ti tr di dryrun erase tracks files () ->
      let cmd_line_tags = Hashtbl.Poly.create () ~size:6 in
      let string_of_int_opt = function
        | Some t -> Some (string_of_int t)
@@ -408,32 +430,31 @@ let show =
                 Track,string_of_int_opt tr;
                 Disc,string_of_int_opt di;
                ];
-
-     match file with
-     | Some x ->
-        let orig_fields = single_file_tags x in
-        let title_fields = match Hashtbl.find orig_fields Title with
-            | Some t -> guess_fields t
-            | None -> empty_tags in
-        let filename_fields = guess_fields (Filename.basename x |> Filename.chop_extension) in
-        let dirname_fields = guess_fields (Filename.dirname x |> Filename.basename) in
-        let file_track_names = match tracks with
-          | Some x -> lines_of x
-          | None -> [] in
-        let fields = [
-            "cmd line",cmd_line_tags;
-            "original",orig_fields;
-            "title",title_fields;
-            "basename",filename_fields;
-            "dirname",dirname_fields;
-          ] in
-
-        if print then
-          List.iteri ~f:(fun idx (label,tags) -> print_tags idx label tags) fields
-        else (
-          ignore (List.append  (pertrack_choice fields) (global_choice fields))
-        )
-     | None -> ()
+     let fields_for_file x =
+       let orig_fields = single_file_tags x in
+       let title_fields = match Hashtbl.find orig_fields Title with
+         | Some t -> guess_fields t
+         | None -> empty_tags in
+       let filename_fields = guess_fields (Filename.basename x |> Filename.chop_extension) in
+       let dirname_fields = guess_fields (Filename.dirname x |> Filename.basename) in
+       let file_track_names = match tracks with
+         | Some x -> lines_of x
+         | None -> [] in
+       [
+         "cmd line",cmd_line_tags;
+         "original",orig_fields;
+         "title",title_fields;
+         "basename",filename_fields;
+         "dirname",dirname_fields;
+       ] in
+     let fields =
+       match List.hd files with
+       | Some x -> fields_for_file x
+       | None -> [] in
+     let choices = List.append (pertrack_choice fields)  (global_choice fields) in
+     List.iter files
+               ~f:(fun x ->
+                   apply_choices x (fields_for_file x) choices dryrun)
     )
 
 let () =
@@ -441,6 +462,6 @@ let () =
 	            (Command.group
                  ~summary: "tagging toolkit"
 			           ["guess",guess;
-			            "show",show;
+			            "set",set;
                  ]
 		          )
