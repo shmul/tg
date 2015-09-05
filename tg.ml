@@ -52,6 +52,19 @@ let single_file_tags fname =
   with
     Not_found -> empty_tags
 
+let save_file_tags fname tags =
+  let f = Taglib.File.open_file `Autodetect fname in
+  let open Core.Std.Caml in
+  let prop = Taglib.File.properties f in
+  Core.Std.Hashtbl.iter ~f:(fun ~key ~data ->
+                            Hashtbl.replace prop (string_of_tag key) [data];
+                            printf "replacing %s with %s\n" (string_of_tag key) data;
+                           ) tags;
+
+  Taglib.File.set_properties f prop;
+  printf "saving: %s\n" fname;
+  ignore(Taglib.File.file_save f);
+  Taglib.File.close_file f
 
 
 type track = {
@@ -71,7 +84,7 @@ type track = {
  *)
 let file_name_guesses =
   List.map [
-      [Rest;Disc;Track],"(.*)[dD][\\s\\._-]*(\\d)[\\s\\.\\)tT_-]+(\\d+)[\\s\\.-]*";
+      [Rest;Disc;Track],"(.*)[dD][\\s\\._-]*(\\d)[\\s\\.\\)tT_-]+(\\d+).*";
       [Rest;Disc;Track;Title],"(.*)[dD][\\s\\._-]*(\\d)[\\s\\.\\)tT_-]+(\\d+)[\\s\\.-]*(.+)";
       [Disc;Track;Title],"[dD][\\s\\._-]*(\\d+)[\\s\\.\\)_-]*[tT][\\s\\.-]*(\\d+)[\\s\\.-]*(.*)";
       [Disc;Track;Title],"(\\d)[\\s\\.\\)_-]+(\\d+)[\\s\\.-]+(.*)";
@@ -157,26 +170,27 @@ let guess_date str =
 let guess_fields str =
   let str_guesses = Hashtbl.Poly.create () ~size:6 in
   let set k d = Hashtbl.set str_guesses ~key:k ~data:d in
-  let guesses = all_guesses str in
-  (match guesses with
+  (match all_guesses str with
   | (expr,matches) :: _ ->
-     List.iter2_exn expr (Array.to_list matches)
-                    ~f:(fun t m ->
-                        match m with
-                        | Some mm -> (match t with
-                                      | Disctrack ->
-                                         (match extract_disctrack mm with
-                                          | (Some disc,Some track) ->
-                                             set Disc disc;
-                                             set Track track
-                                          | (None,Some track) ->
-                                             set Track track
-                                          | (_,_) -> ()
-                                         )
-                                      | _ -> set t mm
-                                     )
-                        | None -> ();
-                       );
+     List.iter2_exn
+       expr (Array.to_list matches)
+       ~f:(fun t m ->
+           match m with
+           | Some mm ->
+              (match t with
+               | Disctrack ->
+                  (match extract_disctrack mm with
+                   | (Some disc,Some track) ->
+                      set Disc disc;
+                      set Track track
+                   | (None,Some track) ->
+                      set Track track
+                   | (_,_) -> ()
+                  )
+               | _ -> set t mm
+              )
+           | None -> ();
+          );
   | _ -> ()
   );
 
@@ -224,14 +238,17 @@ let user_choice prompt user_choices =
       | [] -> ()
  *)
 
-let print_tags idx label tags =
-  if (Hashtbl.length tags)>0 then
-    printf "%d) %-10s:\n" idx label;
+let print_tags_hashtbl tags =
   Hashtbl.iter
     ~f:(fun ~key ~data ->
         printf "  - %s : %s\n" (string_of_tag key) data
        )
     tags
+
+let print_tags idx label tags =
+  if (Hashtbl.length tags)>0 then
+    printf "%d) %-10s:\n" idx label;
+  print_tags_hashtbl tags
 
 
 (*
@@ -254,7 +271,7 @@ type choice =
   | Literal of string
   | File
   | Quit
-  | All
+  | Autonumber
 
 let find_first_non_empty fields t =
   List.find_map ~f:(fun (_,tags) -> Hashtbl.find tags t)
@@ -275,7 +292,7 @@ let user_choice fields t default =
     else if (x="q" || x="Q") then
       Quit
     else if (x="!" || x="a" || x="A") then
-      All
+      Autonumber
     else if (String.get x 0)='*' then (
       let c = String.sub x ~pos:1 ~len:1 |> int_of_string in
       printf "%d\n" c;
@@ -295,11 +312,8 @@ let user_choice fields t default =
     let show_indices idx seed (label,tags) =
       match Hashtbl.find tags t with
       | Some x ->
-         if x<>df then (
            printf "  %-10s: %d) %s\n" label (idx+1) x;
            SI.add seed (idx+1)
-         ) else
-           seed
       | None -> seed in
     let field_indices = List.foldi ~init:SI.empty ~f:show_indices fields in
     read_user_choice field_indices in
@@ -310,7 +324,7 @@ let user_choice fields t default =
   | _ -> (t,c)
 
 let global_choice fields =
-  (*printf "All: Aa! | Quit: Qq\n";*)
+  printf "Autonumber: Aa! | Quit: Qq\n";
   [
     user_choice fields Artist Tag;
     match (find_first_non_empty fields Date,find_first_non_empty fields Location) with
@@ -321,29 +335,70 @@ let global_choice fields =
 
 let pertrack_choice fields =
   List.map ~f:(fun t -> user_choice fields t Tag)
-           [Title;Disc]
+           [Title;Track;Disc]
 
 
 let apply_choices file fields choices dryrun =
   printf "%s\n" file;
-  List.iter choices
-            ~f:(fun (t,c) ->
-                let ch = match c with
-                  | Default df -> default_string fields t df
-                  | Pointer p ->
-                     (match List.nth fields (p-1) with
-                      | Some (_,tags) ->
-                         (match Hashtbl.find tags t with
-                          | Some y -> y
-                          | None -> "no such tag"
-                         )
-                      | None -> "pointer mismatch"
-                     )
-                  | Literal l -> l
-                  | File -> "File"
-                  | _ -> "_" in
-                printf "%s: %s\n" (string_of_tag t) ch
-               )
+  let tags = List.foldi
+               ~init:(Hashtbl.Poly.create () ~size:6)
+               choices
+               ~f:(fun idx seed (t,c) ->
+                   let ch = match c with
+                     | Default df -> default_string fields t df
+                     | Pointer p ->
+                        (match List.nth fields (p-1) with
+                         | Some (_,tags) ->
+                            (match Hashtbl.find tags t with
+                             | Some y -> y
+                             | None -> "no such tag"
+                            )
+                         | None -> "pointer mismatch"
+                        )
+                     | Literal l -> l
+                     | File -> "File"
+                     | Autonumber -> (string_of_int idx)
+                     | _ -> "_" in
+                   Hashtbl.set seed ~key:t ~data:ch;
+                   seed
+                  ) in
+  if not dryrun then
+    save_file_tags file tags
+  else
+    print_tags_hashtbl tags
+
+(* adapted from https://ocaml.org/learn/tutorials/if_statements_loops_and_recursion.html *)
+let readdir_no_ex dirh =
+  try
+    Some (Unix.readdir dirh)
+  with
+    End_of_file -> None
+
+let rec read_directory path selector : string list =
+  if (Sys.is_directory path)=`Yes then (
+    let open Unix in
+    let selector_pat = Regex.create_exn selector in
+    let dirh = opendir path in
+    let rec loop () : string list =
+      let filename = readdir_no_ex dirh in
+      match filename with
+      | None -> []
+      | Some "." -> loop ()
+      | Some ".." -> loop ()
+      | Some filename ->
+         let pathname = path ^ "/" ^ filename in
+         if (Sys.is_directory pathname)=`Yes then
+           List.concat [read_directory pathname selector;loop ()]
+         else if (Regex.matches selector_pat pathname) then
+           (pathname :: loop ())
+         else
+           loop () in
+    let rv = loop () in
+    closedir dirh;
+    rv
+  ) else
+    [path]
+
 
 (* command line handling *)
 let readable_file =
@@ -354,13 +409,11 @@ let lines_of f =
   let ic = open_in f in
   let rec loop lines =
     try
-      loop ((input_line ic) :: lines)
-    with e ->
+      loop ( (input_line ic)::lines )
+    with End_of_file ->
       close_in_noerr ic;
-      raise e in
-  let lines = loop [] |> List.rev in
-  close_in_noerr ic;
-  lines
+      lines in
+  loop [] |> List.rev
 
 let inchan = function
   | None -> In_channel.create "/dev/null"
@@ -415,6 +468,9 @@ let set =
 		              +> anon (sequence ("filename" %: readable_file))
   )
 		(fun ar lo al ti tr di dryrun erase tracks files () ->
+     let all_files = List.map files ~f:(fun x -> read_directory x "\\.(mp[34]|flac|ogg)$")
+                     |> List.concat |> List.sort ~cmp:compare |>
+                       List.filter ~f:(fun x-> x<>"") in
      let cmd_line_tags = Hashtbl.Poly.create () ~size:6 in
      let string_of_int_opt = function
        | Some t -> Some (string_of_int t)
@@ -422,6 +478,9 @@ let set =
      let set_tag = function
        | (t,Some vv) -> Hashtbl.set cmd_line_tags ~key:t ~data:vv
        | (_,None) -> () in
+     let track_names = match tracks with
+       | Some x -> lines_of x
+       | None -> [] in
      List.iter ~f:set_tag
                [Artist,ar;
                 Location,lo;
@@ -430,31 +489,35 @@ let set =
                 Track,string_of_int_opt tr;
                 Disc,string_of_int_opt di;
                ];
-     let fields_for_file x =
+
+     let fields_for_file idx x =
        let orig_fields = single_file_tags x in
        let title_fields = match Hashtbl.find orig_fields Title with
          | Some t -> guess_fields t
          | None -> empty_tags in
        let filename_fields = guess_fields (Filename.basename x |> Filename.chop_extension) in
        let dirname_fields = guess_fields (Filename.dirname x |> Filename.basename) in
-       let file_track_names = match tracks with
-         | Some x -> lines_of x
-         | None -> [] in
+       let track_names_fields = Hashtbl.Poly.create () in
+       (match List.nth track_names idx with
+         | Some x -> Hashtbl.set track_names_fields ~key:Title ~data:x
+         | None -> ());
        [
          "cmd line",cmd_line_tags;
          "original",orig_fields;
          "title",title_fields;
          "basename",filename_fields;
          "dirname",dirname_fields;
+         "track names",track_names_fields
        ] in
+     if (List.length track_names)>0 && (List.length track_names)<>(List.length all_files) then
+       raise (Invalid_argument "Track names size mismatch");
      let fields =
-       match List.hd files with
-       | Some x -> fields_for_file x
-       | None -> [] in
+       match List.hd all_files with
+       | Some x -> printf "%s\n" x; fields_for_file 0 x
+       | _ -> [] in
      let choices = List.append (pertrack_choice fields)  (global_choice fields) in
-     List.iter files
-               ~f:(fun x ->
-                   apply_choices x (fields_for_file x) choices dryrun)
+     List.iteri all_files
+               ~f:(fun i x -> apply_choices x (fields_for_file i x) choices dryrun)
     )
 
 let () =
