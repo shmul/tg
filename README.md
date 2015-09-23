@@ -2,7 +2,7 @@
 
 A (personal) utility to assist in tagging audio files. It is personal in the sense that no attempt was made to make it general purpose - rather it was written to adhere to my peculiar liking. Moreover, it was written as a way to learn and experiment with OCaml, a process which was rather satisfying, though the result is surely not something to be particularly proud of (just an elementary level of OCaml know-how is displayed in the code).
 
-It is released in the hope that it will be valuable to someone, for back up purposes. I do hope it will not greatly embarrass me in the future in horrible unforeseen ways.
+It is released in the hope that it will be valuable to someone and for back up purposes. I do hope it will not greatly embarrass me in the future in horrible unforeseen ways.
 
 ## Usage
 There are two commands, the more useful one is ```set``` which can be used to edit tags and the other one is ```guess``` which is used more for debugging purposes. Scare documentation is available through the ```-h``` switch for each of the commands.
