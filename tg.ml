@@ -18,6 +18,7 @@ type tag =
 let tag_of_string = function
     | "TITLE" -> Title
     | "ALBUM" -> Album
+    | "TRACK" -> Track
     | "TRACKNUMBER" -> Track
     | "ARTIST" -> Artist
     | "DISCNUMBER" -> Disc
@@ -31,9 +32,9 @@ let string_of_tag = function
   | Artist -> "ARTIST"
   | Track -> "TRACK"
   | Disc -> "DISCNUMBER"
-  | Disctrack -> "DISCTRACK"
+  | Disctrack -> "disctrack"
   | Title -> "TITLE"
-  | Rest -> "REST"
+  | Rest -> "rest"
   | Year -> "YEAR"
   | Location -> "location"
   | Date -> "date"
@@ -70,23 +71,38 @@ let print_tags idx label tags =
     printf "%d) %-10s:\n" idx label;
   print_tags_hashtbl tags
 
+let useless_comment_pat = Regex.create_exn "^[0-9A-Fa-f\\s]+$"
+
 let save_file_tags fname tags erase dryrun =
   let f = Taglib.File.open_file `Autodetect fname in
   let open Core.Std.Caml in
   let prop = Taglib.File.properties f in
   Core.Std.Hashtbl.iter ~f:(fun ~key ~data ->
                             Hashtbl.replace prop (string_of_tag key) [data];
+                            match key with (* VorbisComments compatibility *)
+                            | Track -> Hashtbl.replace prop "TRACKNUMBER" [data]
+                            | Disc -> Hashtbl.replace prop "DISC" [data]
+                            | _ -> ();
                             (*printf "replacing %s with %s\n" (string_of_tag key) data*)
                            ) tags;
   if erase then (
     printf "erasing\n";
-    Core.Std.List.iter ["ALBUMARTIST";"GENRE";"ENCODEDBY"]
+    Core.Std.List.iter ["ALBUMARTIST";"GENRE";"ENCODEDBY";"COMPOSER";"COPYRIGHT"]
                        ~f:(fun t -> Hashtbl.replace prop t [""]);
+    match Hashtbl.find_all prop "COMMENT" with
+    | x :: _ -> if (Regex.matches useless_comment_pat (List.hd x)) then
+                     Hashtbl.replace prop "COMMENT" [""]
+    | _ -> ()
   );
 
   if not dryrun then (
     Taglib.File.set_properties f prop;
     printf "saving: %s\n" fname;
+(*
+    match Hashtbl.find_all prop "TRACK" with
+    | x :: _ -> printf "track: %s\n" (List.hd x)
+    | _ -> ();
+ *)
     ignore(Taglib.File.file_save f);
     Taglib.File.close_file f
   ) else
@@ -111,15 +127,19 @@ type track = {
  *)
 let file_name_guesses =
   List.map [
-      [Rest;Disc;Track],"(.*)[dD][\\s\\._-]*(\\d)[\\s\\.\\)tT_-]+(\\d+).*";
-      [Rest;Disc;Track;Title],"(.*)[dD][\\s\\._-]*(\\d)[\\s\\.\\)tT_-]+(\\d+)[\\s\\.-]*(.+)";
-      [Disc;Track;Title],"[dD][\\s\\._-]*(\\d+)[\\s\\.\\)_-]*[tT][\\s\\.-]*(\\d+)[\\s\\.-]*(.*)";
+      [Disc],"disc*(\\d+).*";
+      [Disc],"cd*(\\d+).*";
+      [Rest;Disc],"(.*?)disc[\\s\\.-]*(\\d+)";
+      [Rest;Disc],"(.*?)cd[\\s\\.-]*(\\d+)";
+      [Rest;Disc;Track],"(.*)d[\\s\\._-]*(\\d)[\\s\\.\\)t_-]+(\\d+).*";
+      [Rest;Disc;Track;Title],"(.*)d[\\s\\._-]*(\\d)[\\s\\.\\)t_-]+(\\d+)[\\s\\.-]*(.+)";
+      [Disc;Track;Title],"d[\\s\\._-]*(\\d+)[\\s\\.\\)_-]*t[\\s\\.-]*(\\d+)[\\s\\.-]*(.*)";
       [Disc;Track;Title],"(\\d)[\\s\\.\\)_-]+(\\d+)[\\s\\.-]+(.*)";
       [Disctrack;Title],"[\\s\\.-]*(\\d{1,3})[\\s\\.\\)_-]*(.+)";
       [Rest;Disctrack],"(.+?)(\\d{1,3})";
       [Rest;Disctrack;Title],"(.+)[\\s\\.-]*(\\d{3})[\\s\\.\\)_-]+(.*)";
       [Track],"(.+)";
-    ] ~f:(fun (expr, re) -> ( expr,Regex.create_exn ("^"^re^"$") ))
+    ] ~f:(fun (expr, re) -> ( expr,Regex.create_exn ~options:([`Case_sensitive false]) ("^"^re^"$") ))
 
 let all_guesses str =
   List.fold file_name_guesses ~init:[]
@@ -194,6 +214,11 @@ let guess_date str =
   | Ok s -> guess_date_1 s
   | Error _ -> None
 
+let location_pat = Regex.create_exn "[\\d/:\\.-]+\\s+(.+)"
+let guess_location str =
+  match Regex.find_submatches location_pat str with
+  | Error _ -> None
+  | Ok mts -> mts.(1)
 
 let guess_fields str =
   let str_guesses = Hashtbl.Poly.create () ~size:6 in
@@ -224,6 +249,10 @@ let guess_fields str =
 
   (match guess_date str with
   | Some d -> set Date d;
+  | None -> ());
+
+  (match guess_location str with
+  | Some d -> set Location d;
   | None -> ());
 
   str_guesses
@@ -321,7 +350,9 @@ let user_choice fields t default =
 
 let interpolate_choice fields idx (t,c) =
   match c with
-  | Default df -> Some (default_string fields t df)
+  | Default df -> (match df with
+                  | Empty -> None
+                  | _ -> Some (default_string fields t df))
   | Pointer p ->
      (match List.nth fields (p-1) with
       | Some (_,tags) ->
@@ -338,7 +369,9 @@ let interpolate_choice fields idx (t,c) =
 let global_choice fields =
   printf "Autonumber: Aa! | Quit: Qq\n";
   let artist = user_choice fields Artist Tag in
-  let date = interpolate_choice fields 0 (user_choice fields Date Tag) in
+  let date = match find_first_non_empty fields Date with
+      | Some _ -> interpolate_choice fields 0 (user_choice fields Date Tag)
+      | None -> None in
   let album = match date with
   | None -> user_choice fields Album Tag
   | Some d -> match (interpolate_choice fields 0 (user_choice fields Location Empty)) with
@@ -352,19 +385,17 @@ let pertrack_choice fields =
            [Title;Track;Disc]
 
 
-let apply_choices file fields choices erase dryrun =
-  printf "%s\n" file;
-  let tags = List.foldi
-               ~init:(Hashtbl.Poly.create () ~size:6)
-               choices
-               ~f:(fun idx seed (t,c) ->
-                   let ch = match interpolate_choice fields idx (t,c) with
-                       | Some cc -> cc
-                       | None -> "_" in
-                   Hashtbl.set seed ~key:t ~data:ch;
-                   seed
-                  ) in
-  save_file_tags file tags erase dryrun
+let apply_choices fields choices =
+  List.foldi
+    ~init:(Hashtbl.Poly.create () ~size:6)
+    choices
+    ~f:(fun idx seed (t,c) ->
+        let ch = match interpolate_choice fields idx (t,c) with
+          | Some cc -> cc
+          | None -> "_" in
+        Hashtbl.set seed ~key:t ~data:ch;
+        seed
+       )
 
 (* adapted from https://ocaml.org/learn/tutorials/if_statements_loops_and_recursion.html *)
 let readdir_no_ex dirh =
@@ -561,6 +592,9 @@ let set =
        let title_fields = match Hashtbl.find orig_fields Title with
          | Some t -> guess_fields t
          | None -> empty_tags in
+       let album_fields = match Hashtbl.find orig_fields Album with
+         | Some t -> guess_fields t
+         | None -> empty_tags in
        let filename_fields = guess_fields (Filename.basename x |> Filename.chop_extension) in
        let dirname_fields = guess_fields (Filename.dirname x |> Filename.basename) in
        let track_names_fields = Hashtbl.Poly.create () in
@@ -571,6 +605,7 @@ let set =
          "cmd line",cmd_line_tags;
          "original",orig_fields;
          "title",title_fields;
+         "album",album_fields;
          "basename",filename_fields;
          "dirname",dirname_fields;
          "track names",track_names_fields
@@ -587,7 +622,10 @@ let set =
        printf "------\n";
        let choices = List.append (pertrack_choice fields)  (global_choice fields) in
        List.iteri all_files
-                  ~f:(fun i x -> apply_choices x (fields_for_file i x) choices erase dryrun)
+                  ~f:(fun i x ->
+                      let tags = apply_choices (fields_for_file i x) choices  in
+                      save_file_tags x tags erase dryrun
+                     )
      )
     )
 
