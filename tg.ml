@@ -39,6 +39,9 @@ let string_of_tag = function
   | Location -> "location"
   | Date -> "date"
 
+let urldecode str = try Netencoding.Url.decode str with
+                      | _ -> str
+
 let empty_tags = Hashtbl.Poly.create () ~size:1
 
 let single_file_tags fname =
@@ -51,7 +54,7 @@ let single_file_tags fname =
     Taglib.File.close_file f;
     Hashtbl.fold
       (fun k v seed ->
-       let data = (String.concat "::" v) in
+       let data = (String.concat "::" v) |> urldecode in
        Core.Std.Hashtbl.set seed ~key:(tag_of_string k) ~data;
        seed
       ) prop tags
@@ -265,9 +268,6 @@ let string_of_guess_fields fields =
 (* drop extra spaces; capitalize; decode; remove "_#*"; *)
 let split_pats = Regex.create_exn "[ _%#\\*]+"
 
-let urldecode str = try Netencoding.Url.decode str with
-                      | _ -> str
-
 let normalize str =
   let parts = Regex.split split_pats (urldecode str) in
   String.concat ~sep:" " (List.filter parts ~f:(fun x -> (String.length x)>0) |>
@@ -303,32 +303,30 @@ let find_first_non_empty fields t =
 let default_string fields t default = match default with
   | Tag -> (match find_first_non_empty fields t with
             | Some x -> x
-            | None -> "not found")
+            | None -> raise Not_found)
 (*  | Literal x -> x *)
   | Empty -> ""
 
 let user_choice fields t default =
   let rec read_user_choice field_indices =
     printf "> ";
-    let x = read_line () in
-    if (String.length x)=0 then
-      Default default
-    else if (x="q" || x="Q") then
-      Quit
-    else if (x="!" || x="a" || x="A") then
-      Autonumber
-    else if (String.get x 0)='*' then (
-      let c = String.sub x ~pos:1 ~len:1 |> int_of_string in
-      printf "%d\n" c;
-      if SI.mem field_indices c then
-        Pointer c
-      else (
-        printf "Invalid index. Please choose again %s\n"
-               (SI.elements field_indices |> List.to_string ~f:string_of_int);
-        read_user_choice field_indices
-      )
-    ) else
-      Literal x
+    let line = read_line () in
+    let rest = String.drop_prefix line 1 in
+    match (String.prefix line 1) with
+    | "" -> Default default
+    | "q" | "Q" -> Quit
+    | "!" | "a" | "A" -> Autonumber
+    | "*" ->
+       let c = int_of_string rest in
+       printf "%d\n" c;
+       if SI.mem field_indices c then
+         Pointer c
+       else (
+         printf "Invalid index. Please choose again %s\n"
+                (SI.elements field_indices |> List.to_string ~f:string_of_int);
+         read_user_choice field_indices
+       )
+    | _ -> Literal line
   in
 
   let helper () =
@@ -367,7 +365,7 @@ let interpolate_choice fields idx (t,c) =
   | _ -> None
 
 let global_choice fields =
-  printf "Autonumber: Aa! | Quit: Qq\n";
+  printf "Autonumber: Aa! | Quit: Qq\n; *N to choose from the numbered options";
   let artist = user_choice fields Artist Tag in
   let date = match find_first_non_empty fields Date with
       | Some _ -> interpolate_choice fields 0 (user_choice fields Date Tag)
@@ -489,6 +487,14 @@ let find_file name base_file =
   match base_file with
   | None -> None
   | Some x ->
+       List.map [x; Filename.dirname x] ~f:(fun dir -> dir^"/"^name) |> List.find ~f:exists
+
+(*
+
+let find_file name base_file =
+  match base_file with
+  | None -> None
+  | Some x ->
      let opt1 = x^"/"^name in
      let opt2 = (Filename.dirname x)^"/"^name in
      if exists opt1 then
@@ -497,7 +503,7 @@ let find_file name base_file =
        Some opt2
      else
        None
-
+ *)
 let index_html_pats = Regex.create_exn "\\s+ (.+) [\\d:]+ <em>"
 let tracks_txt_pats = Regex.create_exn "\\s+[\\d\\.\\):\\-]*\\s*(.+?)"
 
