@@ -14,9 +14,14 @@ The following were used through the wonders of ```OPAM```
 * ```core```
 * ```alcotest```
 * ```taglib```
+* ``ocamlnet``
 
 ## Tests
 I only used these initially and then stopped enhancing them nor even making sure they properly run (which they don't!). Sorry. Someday I might fix it.
 
 ## License
 This project is licensed under the terms of the MIT license.
+
+## TODO
+* use patterns to decompose a field, i.e. "Grateful Dead - Dave's Picks 22 - D1T3 - Sugaree" -> "%a - %b - D%dT%n - %t".
+* automatically scan text files in a directory and try to identify track names.
