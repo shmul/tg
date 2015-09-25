@@ -102,8 +102,7 @@ let scan_string user_str field =
   let tags = Hashtbl.Poly.create () ~size:6 in
   let (parts,pattern) = parse_scanner_string user_str in
   match Regex.find_submatches pattern field with
-  | Error _ -> printf "No matches\n";
-               tags
+  | Error _ -> raise Not_found
   | Ok m ->
      try
        let scanned = Array.to_list m |> List.tl_exn |> List.filter_opt in
@@ -117,9 +116,7 @@ let scan_string user_str field =
                          );
        tags
      with
-       Invalid_argument _ -> printf "Scanning failed\n";
-                             tags
-
+       Invalid_argument _ -> raise (Failure "Scanning error")
 
 
 let print_tags_hashtbl tags =
@@ -168,10 +165,10 @@ let save_file_tags fname tags erase dryrun =
  *)
     ignore(Taglib.File.file_save f);
     Taglib.File.close_file f
-  ) else
+  ) else (
     print_tags_hashtbl tags
-
-
+  );
+  tags
 
 type track = {
     filename : string;
@@ -353,6 +350,7 @@ type choice =
   | Default of default_choice
   | Pointer of int
   | Literal of string
+  | Scan of (tag, string) Core_kernel.Core_hashtbl.t
   | Quit
   | Autonumber
 
@@ -363,34 +361,43 @@ let find_first_non_empty fields t =
 let default_string fields t default = match default with
   | Tag -> (match find_first_non_empty fields t with
             | Some x -> x
-            | None -> raise Not_found)
+            | None -> "not found")
 (*  | Literal x -> x *)
   | Empty -> ""
 
 let user_choice fields t default =
+  let df = default_string fields t default in
+
   let rec read_user_choice field_indices =
     printf "> ";
     let line = read_line () in
-    let rest = String.drop_prefix line 1 in
-    match (String.prefix line 1) with
-    | "" -> Default default
-    | "q" | "Q" -> Quit
-    | "!" | "a" | "A" -> Autonumber
-    | "*" ->
-       let c = int_of_string rest in
-       printf "%d\n" c;
-       if SI.mem field_indices c then
-         Pointer c
-       else (
-         printf "Invalid index. Please choose again %s\n"
-                (SI.elements field_indices |> List.to_string ~f:string_of_int);
-         read_user_choice field_indices
-       )
-    | _ -> Literal line
+    if (String.contains line '%') then
+      try
+        Scan (scan_string line df)
+      with
+        Failure _ | Not_found -> printf "Scanning failed. Please try again \n>";
+                                 read_user_choice field_indices
+    else (
+      let rest = String.drop_prefix line 1 in
+      match (String.prefix line 1) with
+      | "" -> Default default
+      | "q" | "Q" -> Quit
+      | "!" | "a" | "A" -> Autonumber
+      | "*" ->
+         let c = int_of_string rest in
+         printf "%d\n" c;
+         if SI.mem field_indices c then
+           Pointer c
+         else (
+           printf "Invalid index. Please choose again %s\n>"
+                  (SI.elements field_indices |> List.to_string ~f:string_of_int);
+           read_user_choice field_indices
+         )
+      | _ -> Literal line
+    )
   in
 
   let helper () =
-    let df = default_string fields t default in
     printf "%-14s:    %s\n" (string_of_tag t) df;
     let show_indices idx seed (label,tags) =
       match Hashtbl.find tags t with
@@ -410,31 +417,35 @@ let interpolate_choice fields idx (t,c) =
   match c with
   | Default df -> (match df with
                   | Empty -> None
-                  | _ -> Some (default_string fields t df))
+                  | _ -> Some [t,default_string fields t df]
+                  )
   | Pointer p ->
      (match List.nth fields (p-1) with
       | Some (_,tags) ->
          (match Hashtbl.find tags t with
-          | Some y -> Some y
-          | None -> Some "no such tag"
+          | Some y -> Some [t,y]
+          | None -> None
          )
-      | None -> Some "pointer mismatch"
+      | None -> None
      )
-  | Literal l -> Some l
-  | Autonumber -> Some (string_of_int idx)
+  | Literal l -> Some [t,l]
+  | Autonumber -> Some [t,string_of_int idx]
+  | Scan h -> Some (Hashtbl.fold h ~init:[] ~f:(fun ~key ~data seed -> (key,data)::seed) )
   | _ -> None
 
 let global_choice fields =
-  printf "Autonumber: Aa! | Quit: Qq\n; *N to choose from the numbered options";
+  printf "Autonumber: Aa! | Quit: Qq | *N: choose from the numbered options\n";
   let artist = user_choice fields Artist Tag in
   let date = match find_first_non_empty fields Date with
       | Some _ -> interpolate_choice fields 0 (user_choice fields Date Tag)
       | None -> None in
   let album = match date with
-  | None -> user_choice fields Album Tag
-  | Some d -> match (interpolate_choice fields 0 (user_choice fields Location Empty)) with
-                | Some l -> (Album,Literal (d^" - "^l))
-                | None -> user_choice fields Album Tag in
+  | Some ((Date,d)::_) ->
+     (match (interpolate_choice fields 0 (user_choice fields Location Empty)) with
+      | Some [(Location,l)] -> (Album,Literal (d^" - "^l))
+      | _ -> user_choice fields Album Tag
+     )
+  | _ -> user_choice fields Album Tag in
   [artist;album]
 
 
@@ -445,13 +456,13 @@ let pertrack_choice fields =
 
 let apply_choices fields choices =
   List.foldi
-    ~init:(Hashtbl.Poly.create () ~size:6)
     choices
+    ~init:(Hashtbl.Poly.create () ~size:6)
     ~f:(fun idx seed (t,c) ->
-        let ch = match interpolate_choice fields idx (t,c) with
-          | Some cc -> cc
-          | None -> "_" in
-        Hashtbl.set seed ~key:t ~data:ch;
+        (match interpolate_choice fields idx (t,c) with
+         | Some cc -> List.iter cc ~f:(fun (t,ch) -> Hashtbl.set seed ~key:t ~data:ch)
+         | None -> ()
+        );
         seed
        )
 
@@ -693,11 +704,17 @@ let set =
      if not print then (
        printf "------\n";
        let choices = List.append (pertrack_choice fields)  (global_choice fields) in
-       List.iteri all_files
-                  ~f:(fun i x ->
-                      let tags = apply_choices (fields_for_file i x) choices  in
-                      save_file_tags x tags erase dryrun
-                     )
+       let last_tags = List.foldi
+                         all_files
+                         ~init:empty_tags
+                         ~f:(fun i _ x ->
+                             let tags = apply_choices (fields_for_file i x) choices  in
+                             save_file_tags x tags erase dryrun
+                            ) in
+       if not dryrun then (
+         printf "------\n";
+         print_tags_hashtbl last_tags
+       )
      )
     )
 
