@@ -191,9 +191,9 @@ let file_name_guesses =
       [Disc],"cd*(\\d+).*";
       [Rest;Disc],"(.*?)disc[\\s\\.-]*(\\d+)";
       [Rest;Disc],"(.*?)cd[\\s\\.-]*(\\d+)";
+      [Disc;Track;Title],"d[\\s\\._-]*(\\d+)[\\s\\.\\)_-]*t[\\s\\.-]*(\\d+)[\\s\\._-]*(.*)";
       [Rest;Disc;Track],"(.*)d[\\s\\._-]*(\\d)[\\s\\.\\)t_-]+(\\d+).*";
-      [Rest;Disc;Track;Title],"(.*)d[\\s\\._-]*(\\d)[\\s\\.\\)t_-]+(\\d+)[\\s\\.-]*(.+)";
-      [Disc;Track;Title],"d[\\s\\._-]*(\\d+)[\\s\\.\\)_-]*t[\\s\\.-]*(\\d+)[\\s\\.-]*(.*)";
+      [Rest;Disc;Track;Title],"(.*)d[\\s\\._-]*(\\d)[\\s\\.\\)t_-]+(\\d+)[\\s\\._-]*(.+)";
       [Disc;Track;Title],"(\\d)[\\s\\.\\)_-]+(\\d+)[\\s\\.-]+(.*)";
       [Disctrack;Title],"[\\s\\.-]*(\\d{1,3})[\\s\\.\\)_-]*(.+)";
       [Rest;Disctrack],"(.+?)(\\d{1,3})";
@@ -564,7 +564,8 @@ let find_file name base_file =
   match base_file with
   | None -> None
   | Some x ->
-       List.map [x; Filename.dirname x] ~f:(fun dir -> dir^"/"^name) |> List.find ~f:exists
+       List.map [x; Filename.dirname x] ~f:(fun dir -> dir^"/"^name) |>
+         List.find ~f:exists
 
 (*
 
@@ -582,7 +583,7 @@ let find_file name base_file =
        None
  *)
 let index_html_pats = Regex.create_exn "\\s+ (.+) [\\d:]+ <em>"
-let tracks_txt_pats = Regex.create_exn "\\s+[\\d\\.\\):\\-]*\\s*(.+?)"
+let tracks_txt_pats = Regex.create_exn "\\s*[\\d\\.\\):\\-]*\\s*(.+)"
 
 let filter_nth_match strings pat n =
   List.map strings
@@ -599,19 +600,19 @@ let rec find_map l ~f =
 
 
 let read_tracks_names tracks_file first_file =
+  let magic () = match find_map ["index.html",index_html_pats;"tracks.txt",tracks_txt_pats]
+                                ~f:(fun (f,p) -> match find_file f first_file with
+                                                 | Some y -> Some (y,p)
+                                                 | None -> None) with
+    | Some (y,p) -> filter_nth_match (lines_of y) p 1
+    | None -> [] in
   match tracks_file with
-  | None -> []
+  | None -> magic ()
   | Some x ->
      if exists x then
        lines_of x
-     else (
-       match find_map ["index.html",index_html_pats;"tracks.txt",tracks_txt_pats]
-                      ~f:(fun (f,p) -> match find_file f first_file with
-                         | Some y -> Some (y,p)
-                         | None -> None) with
-       | Some (y,p) -> filter_nth_match (lines_of y) p 1
-       | None -> []
-     )
+     else
+       magic()
 
 let normalize_file_tags tags =
   let p = Regex.create_exn "(\\d+)" in
@@ -693,8 +694,12 @@ let set =
          "dirname",dirname_fields;
          "track names",track_names_fields
        ] in
-     if (List.length track_names)>0 && (List.length track_names)<>(List.length all_files) then
-       raise (Invalid_argument "Track names size mismatch");
+     let num_track_names = List.length track_names in
+     let num_files = List.length all_files in
+     if num_track_names>0 && num_track_names<>num_files then
+       raise (Invalid_argument
+                (sprintf "Track names size mismatch: actual:%d expected: %d"
+                         num_track_names num_files));
      let fields =
        match List.hd all_files with
        | Some x -> printf "%s\n" x; fields_for_file 0 x
