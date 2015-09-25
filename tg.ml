@@ -61,6 +61,66 @@ let single_file_tags fname =
   with
     Not_found -> empty_tags
 
+(* we look for %x or %X in the string (capitalized means non-greedy)
+the symbols are:
+a -> artist
+b -> album
+d -> disc
+i -> ignore
+n -> track
+t -> title
+ *)
+type scanner_parts =
+  | Literal
+  | Tag of tag
+
+let scanner_pat = Regex.create_exn ~options:([`Case_sensitive false]) "(%[abdint])"
+let scanner_upper_pat = Regex.create_exn "%[A-Z]"
+
+let parse_scanner_string str =
+  let parts = Regex.split ~include_matches:true scanner_pat str |>
+                List.map
+                  ~f:(fun x ->
+                      let upper = if Regex.matches scanner_upper_pat x then "?" else "" in
+                      let sfrag = ".+"^upper in
+                      let ifrag = "\\d+"^upper in
+                      match x with
+                      | "%a" | "%A" -> (Tag Artist,sfrag)
+                      | "%b" | "%B" -> (Tag Album,sfrag)
+                      | "%d" | "%D" -> (Tag Disc,ifrag)
+                      | "%i" | "%I" -> (Literal,sfrag)
+                      | "%n" | "%N" -> (Tag Track,ifrag)
+                      | "%t" | "%T" -> (Tag Title,sfrag)
+                      | _ -> (Literal,x)
+                     ) |> List.filter ~f:(fun (_,x)-> x<>"") in
+  let pattern = List.map parts ~f:(fun (_,x) -> "("^x^")") |>
+                  String.concat ~sep:"" in
+  (List.map parts ~f:(fun (x,_) -> x),Regex.create_exn pattern)
+
+
+let scan_string user_str field =
+  let tags = Hashtbl.Poly.create () ~size:6 in
+  let (parts,pattern) = parse_scanner_string user_str in
+  match Regex.find_submatches pattern field with
+  | Error _ -> printf "No matches\n";
+               tags
+  | Ok m ->
+     try
+       let scanned = Array.to_list m |> List.tl_exn |> List.filter_opt in
+(*       printf "%d %d\n%s\n%s\n" (List.length scanned) (List.length parts)
+              (String.concat ~sep:"," scanned) (Regex.pattern pattern);
+*)
+       List.iter2_exn scanned parts
+                      ~f:(fun sc p -> match p with
+                                      | Tag t -> Hashtbl.set tags ~key:t ~data:(Core.Std.Caml.String.trim sc)
+                                      | _ -> ()
+                         );
+       tags
+     with
+       Invalid_argument _ -> printf "Scanning failed\n";
+                             tags
+
+
 
 let print_tags_hashtbl tags =
   Hashtbl.iter
@@ -460,25 +520,31 @@ let guess =
       +> flag "-f" no_arg ~doc:" guess field"
       +> flag "-d" no_arg ~doc:" guess date"
       +> flag "-n" no_arg ~doc:"Normalize"
+      +> flag "-s" (optional string) ~doc:"Scan"
 		  +> anon (maybe ("file" %: readable_file)))
-		(fun value field date norm file () ->
+		(fun value field date norm scan file () ->
      let nop s = s in
-     let func =
-       if field then
-         fun (s) -> guess_fields s |> string_of_guess_fields
-       else if date then
-         fun (s) -> match guess_date s with
-                      | Some x -> x
-                      | None -> ""
-       else if norm then
-         normalize
-       else
-         nop in
-     match value with
-       | Some x -> printf "%s -> %s\n" x (func x)
-       | None -> (match file with
-                   | Some f -> printf "%s -> %s\n" f (func f)
-                   | None -> ())
+     match scan with
+     | Some x -> (match value with
+                  | Some v -> print_tags_hashtbl (scan_string x v)
+                  | None -> printf "Trying to scan but no value provided"
+                 )
+     | _ -> let func =
+              if field then
+                fun (s) -> guess_fields s |> string_of_guess_fields
+              else if date then
+                fun (s) -> match guess_date s with
+                           | Some x -> x
+                           | None -> ""
+              else if norm then
+                normalize
+              else
+                nop in
+            match value with
+            | Some x -> printf "%s -> %s\n" x (func x)
+            | None -> (match file with
+                       | Some f -> printf "%s -> %s\n" f (func f)
+                       | None -> ())
     )
 
 let exists f = Sys.file_exists f=`Yes

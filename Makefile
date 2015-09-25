@@ -3,4 +3,4 @@ test:
 	corebuild -quiet -use-ocamlfind -pkg $(PKG) -pkg alcotest tests.byte
 
 tg:
-	corebuild -quiet -use-ocamlfind -pkg $(PKG) tg.native
+	corebuild -quiet -use-ocamlfind -pkg $(PKG) tg.byte
