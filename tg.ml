@@ -351,7 +351,7 @@ type choice =
   | Default of default_choice
   | Pointer of int
   | Literal of string
-  | Scan of choice * scanner_parts list * string
+  | Scan of choice * scanner_parts list * Regex.t
   | Quit
   | Autonumber
   | Skip
@@ -372,7 +372,7 @@ let interpolate_pointer fields t p =
   (match List.nth fields (p-1) with
    | Some (_,tags) ->
       (match Hashtbl.find tags t with
-       | Some y -> Some [t,y]
+       | Some y -> Some y
        | None -> None
       )
    | None -> None
@@ -382,7 +382,7 @@ let interpolate_scanner_base_choice fields t base_choice df =
   match base_choice with
     | Default _ -> df
     | Pointer c -> (match interpolate_pointer fields t c with
-                    | Some [_,v] -> v
+                    | Some v -> v
                     | _ -> raise Not_found)
     | _ -> raise (Invalid_argument "unexpected base choice")
 
@@ -392,22 +392,24 @@ let user_choice ?(readl=read_line) ?(printl=printf) fields t default =
   let rec read_user_choice field_indices =
     let scanner str base_choice =
       if (String.contains str '%') then (
-        let rec confirm tags =
+        let confirm tags scan =
           print_tags_hashtbl tags;
           printl "Happy? [Y,n,q]> ";
           let c = readl () in
           try
             match (String.prefix c 1) with
-            | "y" | "Y" | "" -> Scan (base_choice,parts,pattern)
-            | "n" | "N" -> scanner str base_choice
+            | "y" | "Y" | "" -> scan
+            | "n" | "N" -> read_user_choice field_indices
             | "q" | "Q" -> Quit
+            | _ -> printl "Let's try one more time, ok?\n";
+                   read_user_choice field_indices;
           with Failure _ -> (
             printl "Try again";
             read_user_choice field_indices
           ) in
         let (parts,pattern) = parse_scanner_string str in
         let value = interpolate_scanner_base_choice fields t base_choice df in
-        confirm (scan_string value parts pattern)
+        confirm (scan_string value parts pattern) (Scan (base_choice,parts,pattern))
       ) else
         base_choice in
 
@@ -421,11 +423,11 @@ let user_choice ?(readl=read_line) ?(printl=printf) fields t default =
     | "!" | "a" | "A" -> Autonumber
     | "*" ->
        let c = int_of_string rest in
-       printl "%d\n" c;
+       printf "%d\n" c;
        if SI.mem field_indices c then
          scanner (String.drop_prefix rest 1) (Pointer c) (* we strip the index also*)
        else (
-         printl "Invalid index. Please choose again %s\n>"
+         printf "Invalid index. Please choose again %s\n>"
                 (SI.elements field_indices |> List.to_string ~f:string_of_int);
          read_user_choice field_indices
        )
@@ -433,11 +435,11 @@ let user_choice ?(readl=read_line) ?(printl=printf) fields t default =
   in
 
   let helper () =
-    printl "%-14s:    %s\n" (string_of_tag t) df;
+    printf "%-14s:    %s\n" (string_of_tag t) df;
     let show_indices idx seed (label,tags) =
       match Hashtbl.find tags t with
       | Some x ->
-         printl "  %-12s: %d) %s\n" label (idx+1) x;
+         printf "  %-12s: %d) %s\n" label (idx+1) x;
          SI.add seed (idx+1)
       | None -> seed in
     let field_indices = List.foldi ~init:SI.empty ~f:show_indices fields in
@@ -454,18 +456,18 @@ let rec interpolate_choice fields idx (t,c) =
                    | Empty -> None
                    | _ -> Some [t,default_string fields t df]
                   )
-  | Pointer p -> interpolate_choice fields t p
+  | Pointer p -> (match interpolate_pointer fields t p with
+                    | Some v -> Some [t,v]
+                    | None -> None)
   | Literal l -> Some [t,l]
   | Autonumber -> Some [t,string_of_int idx]
   | Scan (base_choice,parts,pattern) ->
-     try
-       let v = interpolate_choice fields idx (t,base_choice) in
-       let value = interpolate_scanner_base_choice fields t c v in
-       Some (Hashtbl.fold (scan_string value parts pattern)
-                          ~init:[] ~f:(fun ~key ~data seed -> (key,data)::seed) )
-     with
-       Failure _ | Not_found -> printf "Scanning failed. Please try again \n>";
-                                read_user_choice field_indices
+     let v = match interpolate_choice fields idx (t,base_choice) with
+       | Some [_,vv] -> vv
+       | _ -> raise (Failure "interpolate_choice failed") in
+     let value = interpolate_scanner_base_choice fields t c v in
+     Some (Hashtbl.fold (scan_string value parts pattern)
+                        ~init:[] ~f:(fun ~key ~data seed -> (key,data)::seed) )
   | Skip | _ -> None
 
 let global_choice fields =
