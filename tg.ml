@@ -74,7 +74,7 @@ type scanner_parts =
   | Literal
   | Tag of tag
 
-let scanner_pat = Regex.create_exn ~options:([`Case_sensitive false]) "(%[abdint])"
+let scanner_pat = Regex.create_exn ~options:([`Case_sensitive false]) "%[abdint]|[\\(\\)\\[\\]]"
 let scanner_upper_pat = Regex.create_exn "%[A-Z]"
 
 let parse_scanner_string str =
@@ -85,17 +85,19 @@ let parse_scanner_string str =
                       let sfrag = ".+"^upper in
                       let ifrag = "\\d+"^upper in
                       match x with
-                      | "%a" | "%A" -> (Tag Artist,sfrag)
-                      | "%b" | "%B" -> (Tag Album,sfrag)
-                      | "%d" | "%D" -> (Tag Disc,ifrag)
-                      | "%i" | "%I" -> (Literal,sfrag)
-                      | "%n" | "%N" -> (Tag Track,ifrag)
-                      | "%t" | "%T" -> (Tag Title,sfrag)
-                      | _ -> (Literal,x)
-                     ) |> List.filter ~f:(fun (_,x)-> x<>"") in
-  let pattern = List.map parts ~f:(fun (_,x) -> "("^x^")") |>
+                      | "%a" | "%A" -> (Tag Artist,sfrag,true)
+                      | "%b" | "%B" -> (Tag Album,sfrag,true)
+                      | "%d" | "%D" -> (Tag Disc,ifrag,true)
+                      | "%i" | "%I" -> (Literal,sfrag,true)
+                      | "%n" | "%N" -> (Tag Track,ifrag,true)
+                      | "%t" | "%T" -> (Tag Title,sfrag,true)
+                      | "(" | ")" -> (Literal,"\\"^x,false)
+                      | _ -> (Literal,x,false)
+                     ) |> List.filter ~f:(fun (_,x,_)-> x<>"") in
+  let pattern = List.map parts ~f:(fun (_,x,c) -> if c then ("("^x^")") else x) |>
                   String.concat ~sep:"" in
-  (List.map parts ~f:(fun (x,_) -> x),Regex.create_exn pattern)
+  (List.filter parts ~f:(fun (_,_,c) -> c) |> List.map ~f:(fun (x,_,_) -> x),
+   Regex.create_exn pattern)
 
 
 let scan_string field parts pattern =
@@ -105,9 +107,10 @@ let scan_string field parts pattern =
   | Ok m ->
      try
        let scanned = Array.to_list m |> List.tl_exn |> List.filter_opt in
-       (*       printf "%d %d\n%s\n%s\n" (List.length scanned) (List.length parts)
+(*
+              printf "%d %d\n%s\n%s\n" (List.length scanned) (List.length parts)
               (String.concat ~sep:"," scanned) (Regex.pattern pattern);
-        *)
+ *)
        List.iter2_exn
          scanned parts
          ~f:(fun sc p -> match p with
@@ -159,6 +162,7 @@ let save_file_tags fname tags erase dryrun =
   if not dryrun then (
     Taglib.File.set_properties f prop;
     printf "saving: %s\n" fname;
+    print_tags_hashtbl tags;
     (*
     match Hashtbl.find_all prop "TRACK" with
     | x :: _ -> printf "track: %s\n" (List.hd x)
@@ -232,7 +236,6 @@ let guess_date_1 str =
     else
       (v,u) in
   let guess_yy t u v =
-    printf "'%s' '%s' '%s'\n" t u v;
     if (int_of_string v)>31 then
       (v,t,u)
     else if (int_of_string u)>31 then
@@ -275,7 +278,7 @@ let guess_date str =
   | Ok s -> guess_date_1 s
   | Error _ -> None
 
-let location_pat = Regex.create_exn "[\\d/:\\.-]+\\s+(.+)"
+let location_pat = Regex.create_exn "[\\d/:\\.\\s-]+(.+)"
 let guess_location str =
   match Regex.find_submatches location_pat str with
   | Error _ -> None
@@ -342,13 +345,12 @@ accept the default; *N to choose from the calculated fields; or to type an alter
 Per track fields are shown afterwards; the user can choose an empty string to accept the default; *N to choose from the calculated; '!' to accept the last selection (symbolically) for all; or to type something
  *)
 
-type default_choice =
+type base_choice =
   | Tag
-  (*  | Literal of string *)
   | Empty
 
 type choice =
-  | Default of default_choice
+  | Default of base_choice
   | Pointer of int
   | Literal of string
   | Scan of choice * scanner_parts list * Regex.t
@@ -364,7 +366,6 @@ let default_string fields t default = match default with
   | Tag -> (match find_first_non_empty fields t with
             | Some x -> x
             | None -> "not found")
-  (*  | Literal x -> x *)
   | Empty -> ""
 
 
@@ -378,63 +379,65 @@ let interpolate_pointer fields t p =
    | None -> None
   )
 
-let interpolate_scanner_base_choice fields t base_choice df =
-  match base_choice with
-    | Default _ -> df
-    | Pointer c -> (match interpolate_pointer fields t c with
-                    | Some v -> v
-                    | _ -> raise Not_found)
-    | _ -> raise (Invalid_argument "unexpected base choice")
+let interpolate_base_choice fields t = function
+  | Default df -> default_string fields t df
+  | Literal v -> v
+  | Pointer c -> (match interpolate_pointer fields t c with
+                  | Some v -> v
+                  | _ -> raise Not_found)
+  | _ -> raise (Invalid_argument "unexpected base choice")
 
 
 let user_choice ?(readl=read_line) ?(printl=printf) fields t default =
-  let df = default_string fields t default in
   let rec read_user_choice field_indices =
     let scanner str base_choice =
-      if (String.contains str '%') then (
-        let confirm tags scan =
-          print_tags_hashtbl tags;
-          printl "Happy? [Y,n,q]> ";
-          let c = readl () in
-          try
-            match (String.prefix c 1) with
-            | "y" | "Y" | "" -> scan
-            | "n" | "N" -> read_user_choice field_indices
-            | "q" | "Q" -> Quit
-            | _ -> printl "Let's try one more time, ok?\n";
-                   read_user_choice field_indices;
-          with Failure _ -> (
-            printl "Try again";
-            read_user_choice field_indices
-          ) in
-        let (parts,pattern) = parse_scanner_string str in
-        let value = interpolate_scanner_base_choice fields t base_choice df in
-        confirm (scan_string value parts pattern) (Scan (base_choice,parts,pattern))
-      ) else
-        base_choice in
+      let confirm tags scan =
+        print_tags_hashtbl tags;
+        printl "Happy? [Y,n,q]> ";
+        try
+          match (String.prefix (readl ()) 1) with
+          | "y" | "Y" | "" -> scan
+          | "n" | "N" -> read_user_choice field_indices
+          | "q" | "Q" -> Quit
+          | _ -> printl "Let's try one more time, ok?\n";
+                 read_user_choice field_indices;
+        with Failure _ -> (
+          printl "Try again";
+          read_user_choice field_indices
+        ) in
+      let (parts,pattern) = parse_scanner_string str in
+      (* TODO - returns the added input, not the field it is based on *)
+      let value = interpolate_base_choice fields t base_choice in
+      confirm (scan_string value parts pattern) (Scan (base_choice,parts,pattern)) in
 
     printl "> ";
     let line = readl () in
     let rest = String.drop_prefix line 1 in
     match (String.prefix line 1) with
-    | "" -> scanner rest (Default default)
     | "q" | "Q" -> Quit
     | "s" | "S" -> Skip
     | "!" | "a" | "A" -> Autonumber
     | "*" ->
-       let c = int_of_string rest in
-       printf "%d\n" c;
-       if SI.mem field_indices c then
-         scanner (String.drop_prefix rest 1) (Pointer c) (* we strip the index also*)
-       else (
+       let c = int_of_string (String.prefix rest 1) in
+       if SI.mem field_indices c then (
+         if (String.contains rest '%') then
+           scanner (String.drop_prefix rest 1) (Pointer c) (* we strip the index also*)
+         else
+           Pointer c
+       ) else (
          printf "Invalid index. Please choose again %s\n>"
                 (SI.elements field_indices |> List.to_string ~f:string_of_int);
          read_user_choice field_indices
        )
-    | _ -> Literal line
+    | "" -> Default default
+    | _ -> if (String.contains rest '%') then
+             scanner line (Default default)
+           else
+             (Literal line)
   in
 
   let helper () =
+    let df = default_string fields t default in
     printf "%-14s:    %s\n" (string_of_tag t) df;
     let show_indices idx seed (label,tags) =
       match Hashtbl.find tags t with
@@ -450,22 +453,19 @@ let user_choice ?(readl=read_line) ?(printl=printf) fields t default =
             exit 0;
   | c -> (t,c)
 
-let rec interpolate_choice fields idx (t,c) =
+let interpolate_choice fields idx (t,c) =
   match c with
-  | Default df -> (match df with
+  | Default bf -> (match bf with
                    | Empty -> None
-                   | _ -> Some [t,default_string fields t df]
+                   | _ -> Some [t,default_string fields t bf]
                   )
   | Pointer p -> (match interpolate_pointer fields t p with
                     | Some v -> Some [t,v]
                     | None -> None)
   | Literal l -> Some [t,l]
   | Autonumber -> Some [t,string_of_int idx]
-  | Scan (base_choice,parts,pattern) ->
-     let v = match interpolate_choice fields idx (t,base_choice) with
-       | Some [_,vv] -> vv
-       | _ -> raise (Failure "interpolate_choice failed") in
-     let value = interpolate_scanner_base_choice fields t c v in
+  | Scan (bc,parts,pattern) ->
+     let value = interpolate_base_choice fields t bc in
      Some (Hashtbl.fold (scan_string value parts pattern)
                         ~init:[] ~f:(fun ~key ~data seed -> (key,data)::seed) )
   | Skip | _ -> None
@@ -491,11 +491,11 @@ let pertrack_choice fields =
            [Title;Track;Disc]
 
 
-let apply_choices fields choices =
-  List.foldi
+let apply_choices idx fields choices =
+  List.fold
     choices
     ~init:(Hashtbl.Poly.create () ~size:6)
-    ~f:(fun idx seed (t,c) ->
+    ~f:(fun seed (t,c) ->
         (match interpolate_choice fields idx (t,c) with
          | Some cc -> List.iter cc ~f:(fun (t,ch) -> Hashtbl.set seed ~key:t ~data:ch)
          | None -> ()
@@ -600,10 +600,11 @@ let guess =
 let exists f = Sys.file_exists f=`Yes
 
 let find_file name base_file =
+  let open Filename in
   match base_file with
   | None -> None
   | Some x ->
-     List.map [x; Filename.dirname x] ~f:(fun dir -> dir^"/"^name) |>
+     List.map [x; dirname x; dirname x |> dirname] ~f:(fun dir -> dir^"/"^name) |>
        List.find ~f:exists
 
 (*
@@ -626,7 +627,7 @@ let tracks_txt_pats = Regex.create_exn "\\s*[\\d\\.\\):\\-]*\\s*(.+)"
 
 let filter_nth_match strings pat n =
   List.map strings
-           ~f:(fun l -> match Regex.find_submatches pat l with
+           ~f:(fun l ->  printf "-%s\n" l; match Regex.find_submatches pat l with
                         | Error _ -> None
                         | Ok mts -> mts.(n)
               ) |> List.filter_opt
@@ -641,7 +642,7 @@ let rec find_map l ~f =
 let read_tracks_names tracks_file first_file =
   let magic () = match find_map ["index.html",index_html_pats;"tracks.txt",tracks_txt_pats]
                                 ~f:(fun (f,p) -> match find_file f first_file with
-                                                 | Some y -> Some (y,p)
+                                                 | Some y -> printf "%s\n" y;Some (y,p)
                                                  | None -> None) with
     | Some (y,p) -> filter_nth_match (lines_of y) p 1
     | None -> [] in
@@ -700,7 +701,9 @@ let set =
      let set_tag = function
        | (t,Some vv) -> Hashtbl.set cmd_line_tags ~key:t ~data:vv
        | (_,None) -> () in
-     let track_names = read_tracks_names tracks (List.hd all_files) in
+     let track_names = match print with
+         | false -> read_tracks_names tracks (List.hd all_files)
+         | true -> [] in
      List.iter ~f:set_tag
                [Artist,ar;
                 Location,lo;
@@ -752,7 +755,7 @@ let set =
                          all_files
                          ~init:empty_tags
                          ~f:(fun i _ x ->
-                             let tags = apply_choices (fields_for_file i x) choices  in
+                             let tags = apply_choices (i+1) (fields_for_file i x) choices  in
                              save_file_tags x tags erase dryrun
                             ) in
        if not dryrun then (
