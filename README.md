@@ -10,13 +10,14 @@ There are two commands, the more useful one is ```set``` which can be used to ed
 When using ```set``` the tool will try to guess as many of the fields as possible, and will present the choices to the user. The user choices for the first file will then be applied to all the rest of the files. This actually makes a lot of sense, since user choices can be *symbolic*. That is if the choice (when presented with the first file) is to use the track number as deduced from the file base name, the process will be separately applied to all the following files. Try it.
 
 Patterns can be used to decompose a field, i.e. "Grateful Dead - Dave's Picks 22 - D1T3 - Sugaree" -> "%a - %b - D%dT%n - %t". The supported indicators are (use capitalize for non-greedy captures):
-* %a -Artist
-* %b -Album
-* %d -Disc
-* %i -ignored
-* %n -Track
-* %t -Title
-
+```
+* %a - Artist
+* %b - Album
+* %d - Disc
+* %i - ignored
+* %n - Track
+* %t - Title
+```
 Patterns in the input line are recognized by any ```%``` occurrence. They will operate on the default choice, or on a *symbolic* choice, i.e. ```*N<pattern>```, where N is from the list of presented options.
 
 ## Dependencies
