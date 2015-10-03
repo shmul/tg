@@ -78,7 +78,7 @@ let scanner_pat = Regex.create_exn ~options:([`Case_sensitive false]) "%[abdint]
 let scanner_upper_pat = Regex.create_exn "%[A-Z]"
 
 let parse_scanner_string str =
-  let parts = Regex.split ~include_matches:true scanner_pat str |>
+  let parts = Regex.split ~include_matches:true scanner_pat (Core.Std.Caml.String.trim str) |>
                 List.map
                   ~f:(fun x ->
                       let upper = if Regex.matches scanner_upper_pat x then "?" else "" in
@@ -150,7 +150,6 @@ let save_file_tags fname tags erase dryrun =
                            (*printf "replacing %s with %s\n" (string_of_tag key) data*)
                            ) tags;
   if erase then (
-    printf "erasing\n";
     Core.Std.List.iter ["ALBUMARTIST";"GENRE";"ENCODEDBY";"COMPOSER";"COPYRIGHT"]
                        ~f:(fun t -> Hashtbl.replace prop t [""]);
     match Hashtbl.find_all prop "COMMENT" with
@@ -161,8 +160,6 @@ let save_file_tags fname tags erase dryrun =
 
   if not dryrun then (
     Taglib.File.set_properties f prop;
-    printf "saving: %s\n" fname;
-    print_tags_hashtbl tags;
     (*
     match Hashtbl.find_all prop "TRACK" with
     | x :: _ -> printf "track: %s\n" (List.hd x)
@@ -331,9 +328,12 @@ let split_pats = Regex.create_exn "[ _%#\\*]+"
 
 let normalize str =
   let parts = Regex.split split_pats (urldecode str) in
+  let replace_underscore x = Str.global_replace (Str.regexp "_") " " x in
   String.concat ~sep:" " (List.filter parts ~f:(fun x -> (String.length x)>0) |>
-                            List.map  ~f:String.lowercase |>
-                            List.map ~f:String.capitalize)
+                            List.map ~f:String.lowercase |>
+                            List.map ~f:String.capitalize ) |>
+    replace_underscore
+
 
 (*
 [Album; Artist]
@@ -414,9 +414,9 @@ let user_choice ?(readl=read_line) ?(printl=printf) fields t default =
     let line = readl () in
     let rest = String.drop_prefix line 1 in
     match (String.prefix line 1) with
-    | "q" | "Q" -> Quit
-    | "s" | "S" -> Skip
-    | "!" | "a" | "A" -> Autonumber
+    | "q" | "Q" when rest="" -> Quit
+    | "s" | "S" when rest="" -> Skip
+    | "!" | "a" | "A" when rest="" -> Autonumber
     | "*" ->
        let c = int_of_string (String.prefix rest 1) in
        if SI.mem field_indices c then (
@@ -457,17 +457,17 @@ let interpolate_choice fields idx (t,c) =
   match c with
   | Default bf -> (match bf with
                    | Empty -> None
-                   | _ -> Some [t,default_string fields t bf]
+                   | _ -> Some [t,default_string fields t bf |> normalize]
                   )
   | Pointer p -> (match interpolate_pointer fields t p with
-                    | Some v -> Some [t,v]
+                    | Some v -> Some [t,normalize v]
                     | None -> None)
   | Literal l -> Some [t,l]
   | Autonumber -> Some [t,string_of_int idx]
   | Scan (bc,parts,pattern) ->
      let value = interpolate_base_choice fields t bc in
      Some (Hashtbl.fold (scan_string value parts pattern)
-                        ~init:[] ~f:(fun ~key ~data seed -> (key,data)::seed) )
+                        ~init:[] ~f:(fun ~key ~data seed -> (key,normalize data)::seed) )
   | Skip | _ -> None
 
 let global_choice fields =
@@ -642,7 +642,7 @@ let rec find_map l ~f =
 let read_tracks_names tracks_file first_file =
   let magic () = match find_map ["index.html",index_html_pats;"tracks.txt",tracks_txt_pats]
                                 ~f:(fun (f,p) -> match find_file f first_file with
-                                                 | Some y -> printf "%s\n" y;Some (y,p)
+                                                 | Some y -> Some (y,p)
                                                  | None -> None) with
     | Some (y,p) -> filter_nth_match (lines_of y) p 1
     | None -> [] in
@@ -729,12 +729,12 @@ let set =
         | None -> ());
        [
          "cmd line",cmd_line_tags;
+         "track names",track_names_fields;
          "original",orig_fields;
          "title",title_fields;
          "album",album_fields;
          "basename",filename_fields;
          "dirname",dirname_fields;
-         "track names",track_names_fields
        ] in
      let num_track_names = List.length track_names in
      let num_files = List.length all_files in
