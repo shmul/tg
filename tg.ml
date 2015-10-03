@@ -16,16 +16,18 @@ type tag =
   | Date
 
 let tag_of_string = function
-  | "TITLE" -> Title
-  | "ALBUM" -> Album
-  | "TRACK" -> Track
-  | "TRACKNUMBER" -> Track
-  | "ARTIST" -> Artist
-  | "DISCNUMBER" -> Disc
-  | "YEAR" -> Year
-  | _ -> Rest
+    | "TITLE" -> Title
+    | "ALBUM" -> Album
+    | "TRACK" -> Track
+    | "TRACKNUMBER" -> Track
+    | "ARTIST" -> Artist
+    | "DISCNUMBER" -> Disc
+    | "DISC" -> Disc
+    | "YEAR" -> Year
+    | _ -> Rest
 
-(* useful link http://help.mp3tag.de/main_tags.html *)
+
+(* useful links http://help.mp3tag.de/main_tags.html and http://www.xiph.org/vorbis/doc/v-comment.html *)
 (* Lowercase tags are intentionally so, to indicate they aren't standard *)
 let string_of_tag = function
   | Album -> "ALBUM"
