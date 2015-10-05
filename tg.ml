@@ -609,52 +609,30 @@ let find_file name base_file =
      List.map [x; dirname x; dirname x |> dirname] ~f:(fun dir -> dir^"/"^name) |>
        List.find ~f:exists
 
-(*
 
-let find_file name base_file =
-  match base_file with
-  | None -> None
-  | Some x ->
-     let opt1 = x^"/"^name in
-     let opt2 = (Filename.dirname x)^"/"^name in
-     if exists opt1 then
-       Some opt1
-     else if exists opt2 then
-       Some opt2
-     else
-       None
- *)
 let index_html_pats = Regex.create_exn "\\s+ (.+) [\\d:]+ <em>"
 let tracks_txt_pats = Regex.create_exn "\\s*[\\d\\.\\):\\-]*\\s*(.+)"
 
 let filter_nth_match strings pat n =
   List.map strings
-           ~f:(fun l ->  printf "-%s\n" l; match Regex.find_submatches pat l with
+           ~f:(fun l -> match Regex.find_submatches pat l with
                         | Error _ -> None
                         | Ok mts -> mts.(n)
               ) |> List.filter_opt
-let rec find_map l ~f =
-  match l with
-  | hd :: tl -> (match f hd with
-                 | Some m -> Some m
-                 | None -> find_map tl ~f)
-  | _ -> None
 
 
 let read_tracks_names tracks_file first_file =
-  let magic () = match find_map ["index.html",index_html_pats;"tracks.txt",tracks_txt_pats]
-                                ~f:(fun (f,p) -> match find_file f first_file with
-                                                 | Some y -> Some (y,p)
-                                                 | None -> None) with
+  let magic () = match List.find_map [
+                           "index.html",index_html_pats;
+                           "tracks.txt",tracks_txt_pats]
+                                     ~f:(fun (f,p) -> match find_file f first_file with
+                                                        | Some y -> Some (y,p)
+                                                        | None -> None) with
     | Some (y,p) -> filter_nth_match (lines_of y) p 1
     | None -> [] in
   match tracks_file with
-  | None -> magic ()
-  | Some x ->
-     if exists x then
-       lines_of x
-     else
-       magic()
+  | Some x when (exists x) -> lines_of x
+  | _ -> magic ()
 
 let normalize_file_tags tags =
   let p = Regex.create_exn "(\\d+)" in
@@ -666,15 +644,7 @@ let normalize_file_tags tags =
                           | _ -> ())
     tags;
   tags
-(*
-filter_nth_match (lines_of y) index_html_pats 1
-       match find_file "index.html" first_file with
-       | Some y -> filter_nth_match (lines_of y) index_html_pats 1
-       | None -> (match find_file "tracks.txt" first_file with
-                  | Some y -> filter_nth_match (lines_of y) tracks_txt_pats 1
-                  | None -> [])
-)
- *)
+
 
 let set =
   Command.basic
@@ -703,9 +673,10 @@ let set =
      let set_tag = function
        | (t,Some vv) -> Hashtbl.set cmd_line_tags ~key:t ~data:vv
        | (_,None) -> () in
-     let track_names = match print with
-         | false -> read_tracks_names tracks (List.hd all_files)
-         | true -> [] in
+     let track_names = if not print then
+                         read_tracks_names tracks (List.hd all_files)
+                       else
+                         [] in
      List.iter ~f:set_tag
                [Artist,ar;
                 Location,lo;
