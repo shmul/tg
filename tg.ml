@@ -223,10 +223,11 @@ let extract_disctrack dt =
 
 (* try to extract dates from a string, and return it in YY-MM-DD format. User input might be required.
  *)
-let date_delims = "\\s\\.\\_/:-"
+let date_delims = "\\s\\._/:-"
 let guess_date_pat_1 = Regex.create_exn (sprintf "(\\d{1,4})[%s]+(\\d{1,4})[%s]+(\\d{1,4})" date_delims date_delims)
 
-let guess_date_1 str =
+let guess_date_1 raw_str =
+  let str = Str.global_replace (Str.regexp (sprintf "[%s]" date_delims)) " " raw_str in
   let sub s pos len = (String.sub ~pos:pos ~len:len s) in
   let matches r s = Regex.matches (Regex.create_exn r) s in
   let guess_mm_dd u v =
@@ -435,7 +436,7 @@ let user_choice ?(readl=read_line) ?(printl=printf) fields t default =
     | _ -> if (String.contains rest '%') then
              scanner line (Default default)
            else
-             (Literal line)
+             (Literal (if line="-" then "" else line))
   in
 
   let helper () =
@@ -525,7 +526,7 @@ let rec read_directory path selector : string list =
       | Some ".." -> loop ()
       | Some filename ->
          let pathname = path ^ "/" ^ filename in
-         if (Sys.is_directory pathname)=`Yes then
+         if (Sys.is_directory pathname)=`Yes && filename<>"__MACOSX" then
            List.concat [read_directory pathname selector;loop ()]
          else if (Regex.matches selector_pat pathname) then
            (pathname :: loop ())
