@@ -236,11 +236,14 @@ let guess_date_1 raw_str =
     else
       (v,u) in
   let guess_yy t u v =
-    if (int_of_string v)>31 then
-      (v,t,u)
-    else if (int_of_string u)>31 then
-      (u,t,v)
-    else
+    try
+      if (int_of_string v)>31 then
+        (v,t,u)
+      else if (int_of_string u)>31 then
+        (u,t,v)
+      else
+        (t,u,v)
+    with Failure _ ->
       (t,u,v) in
   let trim = Core.Std.Caml.String.trim in
   let return y d2 d3 =
