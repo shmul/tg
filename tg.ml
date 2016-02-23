@@ -538,6 +538,86 @@ let rec read_directory path selector : string list =
   ) else
     [path]
 
+let token_pat = Str.regexp "[ \t]+"
+let line_skip_pats =
+  List.map [
+      "show";
+      "set";
+      "encore";
+      "cd"
+    ] ~f:(fun re -> Regex.create_exn ~options:([`Case_sensitive false]) re)
+
+let prefix_pat = Regex.create_exn "^[\\d_\\.\\-\\:\\(\\)\\[\\]\\s]+"
+let suffix_pat = Regex.create_exn "[\\d_\\.\\-\\:\\(\\)\\[\\]\\s]+$"
+
+let num_tokens line =
+  String.split token_pat line |> List.length
+
+let has_skipped_patterns line =
+  List.exists line_skip_pats ~f:(fun re -> Regex.matches re line)
+
+let line_prefix_suffix line =
+  let clean = in (*TODO find the end of prefix, start of suffix and return the substring *)
+  (Regex.matches prefix_pat line,Regex.matches suffix_pat line,clean)
+
+type stamp = { raw_line_num: int; kept_line_num: int; num_tokens: int; prefix: bool; suffix: bool; clean: string; raw: string }
+
+(* each lines gets a set of attributes. Lines with 'set', 'encore', 'show' and 'cd' are skipped but only if they have <= 2 tokens
+- original line number
+- line number after filtering empty and skipped lines
+- number of tokens per line
+- prefix (track number)
+- suffix (track length)
+ *)
+let stamp_text_lines lines =
+  let stamp idx (kept_num,stamped) line =
+    let nt = num_tokens line in
+    let skip = has_skipped_patterns line in
+    if skip && nt<=2 then
+      (kept_num,stamped)
+    else (
+      let (prefix,suffix,clean) = line_prefix_suffix line in
+      {raw_line_num = (kept_num+1); kept_line_num = (idx,kept_num+1; num_tokens = nt; prefix = prefix; suffix = suffix;
+                                                     clean = clean; raw = line}::stamped)
+    )
+  in
+  List.foldi ~init:(0,[]) ~f:stamp lines |> List.rev
+
+(* a greedy algorithm - we scan the file from the first (filtered) line and look for lines of the same format (prefix, suffix)
+  giving lower scores to solutions that contain long lines (the aggregated number of tokens is a penalty). We allow some tolerance
+ to consecutive lines that don't have the same prefix/suffix to accomodate lines that begin with a number
+ *)
+let guess_track_names file num_tracks =
+  let allowed_misses = 3 in
+  let lines = Array.of_list (stamp_text_lines (lines_of file)) in
+  let calculate_penalty i =
+    let rec helper tokens_count prefix suffix misses j =
+      if j<=i+num_tracks then (
+        if lines.(j).prefix==prefix && lines.(j).suffix==suffix then
+          helper (tokens_count+lines.(j).num_tokens) lines.(j).prefix lines.(j).suffix misses j+1
+        else if misses<allowed_misses then
+          helper (tokens_count+lines.(j).num_tokens) lines.(j).prefix lines.(j).suffix (misses+1) j+1
+        else
+          min_int
+      ) else
+        tokens_count
+    in
+    helper 0 lines.(i).prefix lines.(i).suffix 0 in
+
+  let rec loop idx best_idx best_penalty =
+    if idx<(Array.length lines)-num_tracks then (
+      let penalty = calculate_penalty idx in
+      if penalty<best_penalty then
+        helper (idx+1) idx penalty
+      else
+        helper (idx+1) best_idx best_penalty
+    ) else
+      best_idx in
+  match loop 0 -1 min_int with
+  | -1 -> []
+  | idx -> Array.sub lines idx num_tracks |> Array.to_list
+
+
 
 (* command line handling *)
 let readable_file =
