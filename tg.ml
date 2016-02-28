@@ -544,21 +544,28 @@ let line_skip_pats =
       "show";
       "set";
       "encore";
-      "cd"
+      "e:";
+      "cd";
+      "artwork";
+      "kbps";
     ] ~f:(fun re -> Regex.create_exn ~options:([`Case_sensitive false]) re)
 
 let prefix_pat = Regex.create_exn "^[\\d_\\.\\-\\:\\(\\)\\[\\]\\s]+"
 let suffix_pat = Regex.create_exn "[\\d_\\.\\-\\:\\(\\)\\[\\]\\s]+$"
+let scrub_pat = Regex.create_exn "[\\*\\^@\\+]+[\\d]*$"
 
 let num_tokens line =
-  String.split token_pat line |> List.length
+  Str.split token_pat line |> List.length
 
 let has_skipped_patterns line =
   List.exists line_skip_pats ~f:(fun re -> Regex.matches re line)
 
 let line_prefix_suffix line =
-  let clean = in (*TODO find the end of prefix, start of suffix and return the substring *)
-  (Regex.matches prefix_pat line,Regex.matches suffix_pat line,clean)
+  (* printf "%s\n" (String.concat ~sep:";" skip_prefix); *)
+  let clean = Regex.split prefix_pat line |> String.concat ~sep:"" |>
+                Regex.split suffix_pat |> String.concat ~sep:"" |>
+                Regex.split scrub_pat |> String.concat ~sep:"" in
+  Regex.matches prefix_pat line,Regex.matches suffix_pat line,clean
 
 type stamp = { raw_line_num: int; kept_line_num: int; num_tokens: int; prefix: bool; suffix: bool; clean: string; raw: string }
 
@@ -576,46 +583,61 @@ let stamp_text_lines lines =
     if skip && nt<=2 then
       (kept_num,stamped)
     else (
-      let (prefix,suffix,clean) = line_prefix_suffix line in
-      {raw_line_num = (kept_num+1); kept_line_num = (idx,kept_num+1; num_tokens = nt; prefix = prefix; suffix = suffix;
-                                                     clean = clean; raw = line}::stamped)
+      let prefix,suffix,clean = line_prefix_suffix line in
+      (*printf "%i %i %i %B %B %s\n" idx (kept_num+1) nt prefix suffix clean;*)
+      (kept_num+1,
+       {raw_line_num = idx;
+       kept_line_num = kept_num+1;
+       num_tokens = nt; prefix = prefix; suffix = suffix;
+       clean = clean; raw = line} :: stamped)
     )
   in
-  List.foldi ~init:(0,[]) ~f:stamp lines |> List.rev
+  let _,stamped = List.foldi ~init:(0,[]) ~f:stamp lines in
+  List.rev stamped
 
 (* a greedy algorithm - we scan the file from the first (filtered) line and look for lines of the same format (prefix, suffix)
   giving lower scores to solutions that contain long lines (the aggregated number of tokens is a penalty). We allow some tolerance
- to consecutive lines that don't have the same prefix/suffix to accomodate lines that begin with a number
+ to consecutive lines that don't have the same prefix/suffix to accomodate lines that begin with a number.
  *)
-let guess_track_names file num_tracks =
+let guess_track_names file_lines num_tracks =
   let allowed_misses = 3 in
-  let lines = Array.of_list (stamp_text_lines (lines_of file)) in
+  let lines = Array.of_list (stamp_text_lines file_lines) in
   let calculate_penalty i =
-    let rec helper tokens_count prefix suffix misses j =
-      if j<=i+num_tracks then (
-        if lines.(j).prefix==prefix && lines.(j).suffix==suffix then
-          helper (tokens_count+lines.(j).num_tokens) lines.(j).prefix lines.(j).suffix misses j+1
+    printf "%i ----------\n" i;
+    let rec helper j tokens_count prefix suffix misses =
+      if j<i+num_tracks then (
+        let p = lines.(j).prefix in
+        let s = lines.(j).suffix in
+        let new_penalty = tokens_count+lines.(j).num_tokens in
+        printf "%i %i %i %i %s\n" i j misses tokens_count lines.(j).clean;
+        if p=prefix && s=suffix then
+          helper (j+1) new_penalty p s misses
         else if misses<allowed_misses then
-          helper (tokens_count+lines.(j).num_tokens) lines.(j).prefix lines.(j).suffix (misses+1) j+1
+          helper (j+1) new_penalty p s (misses+1)
         else
-          min_int
+          (0,-1000)
       ) else
-        tokens_count
+        (misses,-tokens_count)
     in
-    helper 0 lines.(i).prefix lines.(i).suffix 0 in
+    helper i 0 lines.(i).prefix lines.(i).suffix 0 in
 
-  let rec loop idx best_idx best_penalty =
+  let rec loop idx best_idx minimal_misses best_penalty =
     if idx<(Array.length lines)-num_tracks then (
-      let penalty = calculate_penalty idx in
-      if penalty<best_penalty then
-        helper (idx+1) idx penalty
+      let misses,penalty = calculate_penalty idx in
+      printf "%i %i %i ----------\n" idx misses penalty;
+      if misses<minimal_misses then
+        loop (idx+1) idx misses penalty
+      else if misses>minimal_misses then
+        loop (idx+1) best_idx minimal_misses best_penalty
+      else if penalty<best_penalty then
+        loop (idx+1) idx misses penalty
       else
-        helper (idx+1) best_idx best_penalty
+        loop (idx+1) best_idx minimal_misses best_penalty
     ) else
       best_idx in
-  match loop 0 -1 min_int with
-  | -1 -> []
-  | idx -> Array.sub lines idx num_tracks |> Array.to_list
+  match loop 0 (-1) (allowed_misses+1) (-1000) with
+  | -1 -> printf "basa"; []
+  | idx -> Array.sub lines ~pos:idx ~len:num_tracks |> Array.to_list
 
 
 
@@ -638,11 +660,12 @@ let lines_of f =
       lines in
   loop [] |> List.rev
 
+(*
 let inchan = function
   | None -> In_channel.create "/dev/null"
   | Some "-" -> In_channel.stdin
   | Some filename -> open_in filename
-
+*)
 let guess =
   Command.basic
     ~summary: "Guess fields or dates"
@@ -651,10 +674,10 @@ let guess =
                   +> flag "-f" no_arg ~doc:" guess field"
                   +> flag "-d" no_arg ~doc:" guess date"
                   +> flag "-n" no_arg ~doc:"Normalize"
+                  +> flag "-t" (optional int) ~doc:" expected number of tracks"
                   +> flag "-s" (optional string) ~doc:"Scan"
 		              +> anon (maybe ("file" %: readable_file)))
-		(fun value field date norm scan file () ->
-     let nop s = s in
+		(fun value field date norm tracks scan file () ->
      match scan with
      | Some x -> (match value with
                   | Some v ->
@@ -662,22 +685,31 @@ let guess =
                      print_tags_hashtbl (scan_string v parts pattern)
                   | None -> printf "Trying to scan but no value provided"
                  )
-     | _ -> let func =
-              if field then
-                fun (s) -> guess_fields s |> string_of_guess_fields
-              else if date then
-                fun (s) -> match guess_date s with
-                           | Some x -> x
+     | _ ->
+        match tracks with
+        | Some n -> (match file with
+                     | Some f -> let tracks = guess_track_names (lines_of f) n in
+                                 printf "%s\n" (
+                                          List.map tracks ~f:(fun x -> x.clean) |>
+                                            String.concat ~sep:"\n")
+                     | None -> ())
+        | _ -> let nop s = s in
+               let func =
+                 if field then
+                   fun (s) -> guess_fields s |> string_of_guess_fields
+                 else if date then
+                   fun (s) -> match guess_date s with
+                              | Some x -> x
                            | None -> ""
-              else if norm then
-                normalize
-              else
-                nop in
-            match value with
-            | Some x -> printf "%s -> %s\n" x (func x)
-            | None -> (match file with
-                       | Some f -> printf "%s -> %s\n" f (func f)
-                       | None -> ())
+                 else if norm then
+                   normalize
+                 else
+                   nop in
+               match value with
+               | Some x -> printf "%s -> %s\n" x (func x)
+               | None -> (match file with
+                          | Some f -> printf "%s -> %s\n" f (func f)
+                          | None -> ())
     )
 
 let exists f = Sys.file_exists f=`Yes
