@@ -551,7 +551,7 @@ let line_skip_pats =
       "kbps";
     ] ~f:(fun re -> Regex.create_exn ~options:([`Case_sensitive false]) re)
 
-let prefix_pat = Regex.create_exn "^[\\d_\\.\\-\\:\\(\\)\\[\\]]+\\s+"
+let prefix_pat = Regex.create_exn "^[dts\\d_\\.\\-\\:\\(\\)\\[\\]]+\\s+"
 let suffix_pat = Regex.create_exn "\\s+[\\d\\(\\[][\\d_\\.\\-:\\)\\]\\s]+$"
 let scrub_pat = Regex.create_exn "\\s+[\\*\\^@\\+]+[\\d]*$"
 
@@ -602,11 +602,13 @@ let stamp_text_lines lines =
 (* a greedy algorithm - we scan the file from the first (filtered) line and look for lines of the same format (prefix, suffix)
   giving lower scores to solutions that contain long lines (the aggregated number of tokens is a penalty). We allow some tolerance
  to consecutive lines that don't have the same prefix/suffix to accomodate lines that begin with a number.
-  preferance is given to results that contain a prefix or a suffix and are later in the file
+  preferance is given to results that contain a prefix or a suffix and appear later in the file.
+
  *)
 let guess_track_names file_lines num_tracks =
   let allowed_misses = 3 in
   let lines = Array.of_list (stamp_text_lines file_lines) in
+
   let index_score i =
     (*printf "%i ----------\n" i;*)
     let rec helper j tokens_count prefix suffix misses =
@@ -615,6 +617,7 @@ let guess_track_names file_lines num_tracks =
         let s = lines.(j).suffix in
         let num_tokens = tokens_count+lines.(j).num_tokens in
         (*printf "%i %i %i %i %s\n" i j misses tokens_count lines.(j).clean;*)
+
         if p=prefix && s=suffix then
           helper (j+1) num_tokens prefix suffix misses
         else if misses<allowed_misses then
@@ -625,6 +628,7 @@ let guess_track_names file_lines num_tracks =
         (i,misses,prefix,suffix,tokens_count)
     in
     helper i 0 lines.(i).prefix lines.(i).suffix 0 in
+
   let compare_scores (_,m1,p1,s1,t1) (_,m2,p2,s2,t2) =
     if m1=m2 && p1=p2 && s1=s2 && t1=t2 then 0
     else if m1<m2 then -1
@@ -646,6 +650,37 @@ let guess_track_names file_lines num_tracks =
            ~f:(fun (idx,_,_,_,_) -> Array.sub lines ~pos:idx ~len:num_tracks |> Array.to_list) |>
     List.map ~f:(fun x -> List.map x ~f:(fun y -> y.clean))
 
+let print_tracks guesses idx =
+  match List.nth guesses idx with
+  | None -> ()
+  | Some tracks -> printf "%s\n" (String.concat tracks ~sep:"\n")
+
+let user_tracks_choice ?(readl=read_line) ?(printl=printf) guesses =
+  let quit () = printl "Bye.\n";
+                exit 0 in
+  let rec read_user_choice idx =
+    let confirm =
+      printf "\n";
+      print_tracks guesses idx;
+      printl "\nHappy? [Y,n,q]> ";
+      try
+        match (String.prefix (readl ()) 1) with
+        | "y" | "Y" | "" -> List.nth guesses idx
+        | "n" | "N" -> read_user_choice (idx+1)
+        | "q" | "Q" -> quit ()
+        | _ -> printl "Let's try one more time, ok?\n";
+               read_user_choice idx;
+      with Failure _ -> (
+        printl "Try again";
+        read_user_choice idx
+      ) in
+
+    if idx>=(List.length guesses) then (
+      printl "List exhausted; Quitting";
+      quit ()
+    ) else
+      confirm in
+  read_user_choice 0
 
 (* command line handling *)
 let readable_file =
@@ -695,9 +730,8 @@ let guess =
         match tracks with
         | Some n -> (match file with
                      | Some f -> let guesses = guess_track_names (lines_of f) n in
-                                 (match List.hd guesses with
-                                 | None -> printf "basa"
-                                 | Some tracks -> printf "%s\n" (String.concat tracks ~sep:"\n"))
+                                 let _ = user_tracks_choice guesses in
+                                 ()
                      | None -> ())
         | _ -> let nop s = s in
                let func =
