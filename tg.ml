@@ -546,13 +546,14 @@ let line_skip_pats =
       "encore";
       "e:";
       "cd";
+      "disc";
       "artwork";
       "kbps";
     ] ~f:(fun re -> Regex.create_exn ~options:([`Case_sensitive false]) re)
 
-let prefix_pat = Regex.create_exn "^[\\d_\\.\\-\\:\\(\\)\\[\\]\\s]+"
-let suffix_pat = Regex.create_exn "[\\d_\\.\\-\\:\\(\\)\\[\\]\\s]+$"
-let scrub_pat = Regex.create_exn "[\\*\\^@\\+]+[\\d]*$"
+let prefix_pat = Regex.create_exn "^[\\d_\\.\\-\\:\\(\\)\\[\\]]+\\s+"
+let suffix_pat = Regex.create_exn "\\s+[\\d\\(\\[][\\d_\\.\\-:\\)\\]\\s]+$"
+let scrub_pat = Regex.create_exn "\\s+[\\*\\^@\\+]+[\\d]*$"
 
 let num_tokens line =
   Str.split token_pat line |> List.length
@@ -580,16 +581,19 @@ let stamp_text_lines lines =
   let stamp idx (kept_num,stamped) line =
     let nt = num_tokens line in
     let skip = has_skipped_patterns line in
-    if skip && nt<=2 then
+    if skip && nt<=3 then
       (kept_num,stamped)
     else (
       let prefix,suffix,clean = line_prefix_suffix line in
       (*printf "%i %i %i %B %B %s\n" idx (kept_num+1) nt prefix suffix clean;*)
-      (kept_num+1,
-       {raw_line_num = idx;
-       kept_line_num = kept_num+1;
-       num_tokens = nt; prefix = prefix; suffix = suffix;
-       clean = clean; raw = line} :: stamped)
+      if String.is_empty clean then
+        (kept_num,stamped)
+      else
+        (kept_num+1,
+         {raw_line_num = idx;
+          kept_line_num = kept_num+1;
+          num_tokens = nt; prefix = prefix; suffix = suffix;
+          clean = clean; raw = line} :: stamped)
     )
   in
   let _,stamped = List.foldi ~init:(0,[]) ~f:stamp lines in
@@ -598,47 +602,49 @@ let stamp_text_lines lines =
 (* a greedy algorithm - we scan the file from the first (filtered) line and look for lines of the same format (prefix, suffix)
   giving lower scores to solutions that contain long lines (the aggregated number of tokens is a penalty). We allow some tolerance
  to consecutive lines that don't have the same prefix/suffix to accomodate lines that begin with a number.
+  preferance is given to results that contain a prefix or a suffix and are later in the file
  *)
 let guess_track_names file_lines num_tracks =
   let allowed_misses = 3 in
   let lines = Array.of_list (stamp_text_lines file_lines) in
-  let calculate_penalty i =
-    printf "%i ----------\n" i;
+  let index_score i =
+    (*printf "%i ----------\n" i;*)
     let rec helper j tokens_count prefix suffix misses =
       if j<i+num_tracks then (
         let p = lines.(j).prefix in
         let s = lines.(j).suffix in
-        let new_penalty = tokens_count+lines.(j).num_tokens in
-        printf "%i %i %i %i %s\n" i j misses tokens_count lines.(j).clean;
+        let num_tokens = tokens_count+lines.(j).num_tokens in
+        (*printf "%i %i %i %i %s\n" i j misses tokens_count lines.(j).clean;*)
         if p=prefix && s=suffix then
-          helper (j+1) new_penalty p s misses
+          helper (j+1) num_tokens prefix suffix misses
         else if misses<allowed_misses then
-          helper (j+1) new_penalty p s (misses+1)
+          helper (j+1) num_tokens prefix suffix (misses+1)
         else
-          (0,-1000)
+          (i,allowed_misses,false,false,1000)
       ) else
-        (misses,-tokens_count)
+        (i,misses,prefix,suffix,tokens_count)
     in
     helper i 0 lines.(i).prefix lines.(i).suffix 0 in
+  let compare_scores (_,m1,p1,s1,t1) (_,m2,p2,s2,t2) =
+    if m1=m2 && p1=p2 && s1=s2 && t1=t2 then 0
+    else if m1<m2 then -1
+    else if m1>m2 then 1
+    else if p1 && not p2 then -1
+    else if not p1 && p2 then 1
+    else if s1 && not s2 then -1
+    else if not s1 && s2 then 1
+    else if t1<t2 then -1
+    else 1 in
 
-  let rec loop idx best_idx minimal_misses best_penalty =
-    if idx<(Array.length lines)-num_tracks then (
-      let misses,penalty = calculate_penalty idx in
-      printf "%i %i %i ----------\n" idx misses penalty;
-      if misses<minimal_misses then
-        loop (idx+1) idx misses penalty
-      else if misses>minimal_misses then
-        loop (idx+1) best_idx minimal_misses best_penalty
-      else if penalty<best_penalty then
-        loop (idx+1) idx misses penalty
-      else
-        loop (idx+1) best_idx minimal_misses best_penalty
-    ) else
-      best_idx in
-  match loop 0 (-1) (allowed_misses+1) (-1000) with
-  | -1 -> printf "basa"; []
-  | idx -> Array.sub lines ~pos:idx ~len:num_tracks |> Array.to_list
-
+  let rec loop idx scores =
+    if idx<=(Array.length lines)-num_tracks then
+      loop (idx+1) ((index_score idx) :: scores)
+    else
+      scores in
+  (*List.iter scores ~f:(fun (i,m,p,s,t) -> printf "%i %B %B %i %i %s\n" m p s t i lines.(i).clean );*)
+  List.map (loop 0 [] |> List.sort ~cmp:compare_scores)
+           ~f:(fun (idx,_,_,_,_) -> Array.sub lines ~pos:idx ~len:num_tracks |> Array.to_list) |>
+    List.map ~f:(fun x -> List.map x ~f:(fun y -> y.clean))
 
 
 (* command line handling *)
@@ -688,10 +694,10 @@ let guess =
      | _ ->
         match tracks with
         | Some n -> (match file with
-                     | Some f -> let tracks = guess_track_names (lines_of f) n in
-                                 printf "%s\n" (
-                                          List.map tracks ~f:(fun x -> x.clean) |>
-                                            String.concat ~sep:"\n")
+                     | Some f -> let guesses = guess_track_names (lines_of f) n in
+                                 (match List.hd guesses with
+                                 | None -> printf "basa"
+                                 | Some tracks -> printf "%s\n" (String.concat tracks ~sep:"\n"))
                      | None -> ())
         | _ -> let nop s = s in
                let func =
