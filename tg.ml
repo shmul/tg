@@ -196,9 +196,9 @@ let file_name_guesses =
       [Rest;Disc],"(.*?)disc[\\s\\.-]*(\\d+)";
       [Rest;Disc],"(.*?)cd[\\s\\.-]*(\\d+)";
       [Disc;Track;Title],"d[\\s\\._-]*(\\d+)[\\s\\.\\)_-]*t[\\s\\.-]*(\\d+)[\\s\\._-]*(.*)";
+      [Rest;Disc;Track;Title],"(.*)d[\\s\\._-]*(\\d)[\\s\\.\\)t_-]+(\\d+)[\\s\\._-]+(.+)";
       [Rest;Disc;Track],"(.*)d[\\s\\._-]*(\\d)[\\s\\.\\)t_-]+(\\d+).*";
-      [Rest;Disc;Track;Title],"(.*)d[\\s\\._-]*(\\d)[\\s\\.\\)t_-]+(\\d+)[\\s\\._-]*(.+)";
-      [Disc;Track;Title],"(\\d)[\\s\\.\\)_-]+(\\d+)[\\s\\.-]+(.*)";
+      [Disc;Track;Title],"(\\d)[\\s\\.\\)_-]+(\\d+)[\\s\\.-]+(.+)";
       [Disctrack;Title],"[\\s\\.-]*(\\d{1,3})[\\s\\.\\)_-]*(.+)";
       [Rest;Disctrack],"(.+?)(\\d{1,3})";
       [Rest;Disctrack;Title],"(.+)[\\s\\.-]*(\\d{3})[\\s\\.\\)_-]+(.*)";
@@ -236,11 +236,14 @@ let guess_date_1 raw_str =
     else
       (v,u) in
   let guess_yy t u v =
-    if (int_of_string v)>31 then
-      (v,t,u)
-    else if (int_of_string u)>31 then
-      (u,t,v)
-    else
+    try
+      if (int_of_string v)>31 then
+        (v,t,u)
+      else if (int_of_string u)>31 then
+        (u,t,v)
+      else
+        (t,u,v)
+    with Failure _ ->
       (t,u,v) in
   let trim = Core.Std.Caml.String.trim in
   let return y d2 d3 =
@@ -891,11 +894,102 @@ let set =
      )
     )
 
+(* tests *)
+let test =
+  let as_eq a b = OUnit.assert_equal a b ~printer:(fun x -> sprintf "'%s'" x) in
+  let rec eq_list a b =
+    match (a,b) with
+    | ([],[]) -> true
+    | (hda :: tla,hdb :: tlb) ->
+       if hda=hdb then
+         eq_list tla tlb
+       else
+         false
+    | _ -> false in
+  let norm () =
+    let pairs = ["Hello Cruel World","hello cruel World";
+                 "Hello Cruel World","hello     cruel_woRld";
+                 "Hello Cruel World","     hello cruel world *#%";
+                 "","";
+                 "","   ";
+               "Hello","hello";
+               "Hello","hello%20";
+               "Hello Cruel World","hello%20cr%75el%5fWor%6cd";
+                ] in
+    List.iter pairs ~f:(fun (expected, raw)-> as_eq expected (normalize raw)) in
+
+  let matches () =
+    let pairs = [
+        [Disctrack;Title],"08 Mountain Jam";
+        [Disctrack;Title],"8. Mountain Jam";
+        [Disctrack;Title],"8) Mountain Jam";
+        [Rest;Disctrack],"Tedeschi Trucks Band 2013-10-17 NPR03";
+        [Rest;Disc;Track;Title],"ph131230d1_02_Bathtub_Gin";
+        [Rest;Disc;Track;Title],"ph131228d1_02_Stealing_Time_From_The_Faulty_Plan";
+        [Disc;Track;Title],"2-03 Been So Long";
+        [Rest;Disc;Track],"gd90-09-20d2t02";
+        [Rest;Disc;Track],"ABB1973-12-31d4t01";
+      ] in
+    List.iter pairs ~f:(fun (expected, raw)->
+                        match all_guesses raw with
+                        | (expr,_) :: _ ->
+                           if not (eq_list expected expr) then
+                             OUnit.assert_failure (sprintf "failed on '%s'\n %s\n" raw
+                                                  (List.map expr ~f:string_of_tag
+                                                   |> String.concat ~sep:";")
+                                                  )
+                        | _ -> ()) in
+
+  let dates () =
+    let pairs = [
+        "49-12-30","12301949";
+        "59-12-30","19591230";
+        "69-12-30","1969-12-30";
+        "79-12-30","12/30/1979";
+        "89-12-30","1989 30 12";
+        "99-12-30","30_12_99";
+        "49-10-20","102049";
+        "89-12-20","201289";
+        "58-01-10","58/01/10";
+        "13-12-30","ph131230d1_02_Bathtub_Gin";
+        "76-06-10","gd76-06-10Berthad3t05";
+        "87-10-21","jgb87-10-21d1t03";
+        "70-06-04","C$NY  06-04-1970 NY (SBD)";
+        "99-07-23","David Nelson Band, 7 23 99 two";
+        "99-07-23","David Nelson Band, 7-23-99 two";
+        "90-09-20","gd90-09-20d2t02.flac";
+        "73-12-31","ABB1973-12-31d4t01";
+        "95-06-02","Robert Jr. Lockwood 1995-06-02";
+      ] in
+    List.iter pairs ~f:(fun (expected, raw)->
+                        as_eq expected (match guess_date raw with
+                                        | Some x -> x
+                                        | None -> "")
+                       ) in
+
+  let test_set = [
+      "normalize", `Quick, norm;
+      "matches", `Quick, matches;
+      "date", `Quick, dates;
+    ] in
+
+  Command.basic
+    ~summary: "Run unit tests"
+    Command.Spec.(empty
+  )
+		(fun () ->
+
+     Alcotest.run "tg tests" [
+                    "test_set",test_set;
+                  ]
+    )
+
 let () =
   Command.run ~version:"0.1"
 	            (Command.group
                  ~summary: "tagging toolkit"
 			           ["guess",guess;
 			            "set",set;
+			            "test",test;
                  ]
 		          )
