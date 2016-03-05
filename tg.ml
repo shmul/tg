@@ -137,6 +137,10 @@ let print_tags idx label tags =
     printf "%d) %-10s:\n" idx label;
   print_tags_hashtbl tags
 
+let create_full_line_regex re =
+  Regex.create_exn ~options:([`Case_sensitive false]) ("^"^re^"$")
+
+
 let useless_comment_pat = Regex.create_exn "^[0-9A-Fa-f\\s]+$"
 
 let save_file_tags fname tags erase dryrun =
@@ -191,8 +195,11 @@ type track = {
  *)
 let file_name_guesses =
   List.map [
+(*      [Disc],".*(\\d{1,2}).*";*)
       [Disc],"disc*(\\d+).*";
       [Disc],"cd*(\\d+).*";
+      [Disc],".*\\sdisc*(\\d+).*";
+      [Disc],".*\\scd*(\\d+).*";
       [Rest;Disc],"(.*?)disc[\\s\\.-]*(\\d+)";
       [Rest;Disc],"(.*?)cd[\\s\\.-]*(\\d+)";
       [Disc;Track;Title],"d[\\s\\._-]*(\\d+)[\\s\\.\\)_-]*t[\\s\\.-]*(\\d+)[\\s\\._-]*(.*)";
@@ -203,7 +210,7 @@ let file_name_guesses =
       [Rest;Disctrack],"(.+?)(\\d{1,3})";
       [Rest;Disctrack;Title],"(.+)[\\s\\.-]*(\\d{3})[\\s\\.\\)_-]+(.*)";
       [Track],"(.+)";
-    ] ~f:(fun (expr, re) -> ( expr,Regex.create_exn ~options:([`Case_sensitive false]) ("^"^re^"$") ))
+    ] ~f:(fun (expr, re) -> ( expr,create_full_line_regex re))
 
 let all_guesses str =
   List.fold file_name_guesses ~init:[]
@@ -897,6 +904,7 @@ let set =
 (* tests *)
 let test =
   let as_eq a b = OUnit.assert_equal a b ~printer:(fun x -> sprintf "'%s'" x) in
+  let as_eq_i ?(msg="") a b  = OUnit.assert_equal a b ~printer:(fun x -> sprintf "'%i' %s" x msg) in
   let rec eq_list a b =
     match (a,b) with
     | ([],[]) -> true
@@ -966,11 +974,31 @@ let test =
                                         | Some x -> x
                                         | None -> "")
                        ) in
+  let tracks () =
+    let fixtures =
+    [
+      ("sly10-9-70.txt",6,"Thank you","Simple Song","Stand!","I want to Take You Higher");
+      ("yes.txt",5,"I've Seen All Good People","Rick Wakeman Moog - Piano - Organ - Mellotron Solo","Rick Wakeman Moog - Piano - Organ - Mellotron Solo","Yours Is No Disgrace")
+    ] in
+    List.iteri fixtures
+              ~f:(fun i (f,l,frst,thrd,before,last) ->
+                  let guesses = guess_track_names (lines_of ("fixtures/"^ f)) l in
+                  match List.hd guesses with
+                  | Some trs -> let len = List.length trs in
+                                as_eq_i l len ~msg:(String.concat ~sep:"; " trs);
+                                as_eq frst (List.hd_exn trs);
+                                as_eq thrd (List.nth_exn trs 2);
+                                as_eq before (List.nth_exn trs (len-3));
+                                as_eq last (List.last_exn trs)
+                  | None -> failwith (sprintf "%d" i)
+                 )
+     in
 
   let test_set = [
       "normalize", `Quick, norm;
       "matches", `Quick, matches;
       "date", `Quick, dates;
+      "tracks", `Quick, tracks
     ] in
 
   Command.basic

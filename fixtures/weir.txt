@@ -1,0 +1,56 @@
+Bob Weir & Ratdog
+1995-08-09
+Hampton Beach Casino
+Hampton Beach, NH
+Soundboard Recording
+192 kbps (vbr)
+Artwork Included
+
+"A Tribute to Jerry Garcia"
+
+CD 1:       
+01. Tuning
+02. Weir intro
+03. Bombs Away >
+04. Walkin' Blues
+05. City Girls
+06. Fever >
+07. Eternity
+08. Youngblood
+09. Blackbird
+10. K.C. Moan
+11. Good Morning, Little Schoolgirl
+12. The Winners >
+13. This Time Forever >
+14. Shade of Gray >
+15. Heaven Help the Fool >
+16. Drums
+
+CD 2:      
+01. Bass Solo (Amasing Grace)
+02. Easy Answers >
+03. Throwing Stones *
+
+Encore:
+04.  Every Little Light *
+05.  Knockin' on Heavens Door *
+
+Notes
+
+source:   Digital Soundboard
+recorded by:  Dave Flaschner
+
+transfer:  dat (master) -> DA-20mkII -> AR coax -> Audiophile 24/96 -> Wavelab 5.0 -> CD Wave -> FLAC(6)
+transfer:  Chris Davis (5/4/08)
+*patched with shn id #5229, with (+5 db) added in Wavelab.
+
+patches:
+d1t13:  (00:00 - 00:23)
+d2t03:  (05:39 - 11:52)
+d2t04:  (00:00 - 03:26)
+d2t05:  (00:01 - 00:11)
+
+Daves notes on this recording:
+The 8-9-95 is the sound board master. My friend was the house sound guy there. We set up a line feed from the board to the lighting board up stairs. We planned this before Jerry died,there are a couple drop outs,where the feed went bad,tape kept rolling. 
+
+

@@ -1,0 +1,79 @@
+Jerry Garcia Band
+Keystone
+Berkeley, CA
+8/22/76
+
+Disc One 
+--Set I--
+Second That Emotion 
+They Love Each Other 
+I'll Take a Melody 
+That's What Love Will Make You Do 
+Mission in the Rain 
+
+Disc Two 
+--Set II--
+The Way You Do The Things You Do 
+Midnight Moonlight 
+Strange Man 
+Tore Up 
+Stop That Train 
+Ride Mighty High 
+
+------------------- original shnid 15762 information ------------------
+MSR (2 track 7" reels @ 7.5ips) > 1C > DAT > CD > EAC > SHN
+Notes/Flaws:
+- d1t01 Second That Emotion fades in, not much missing
+- d1t04 TWLWMYD cut/splice @ 1:48
+- d2t04 Strange Man cut/splice @ 4:30
+
+A MisSHN in the Rain Installment of the Music Never Stopped Project.
+-----------------------------------------------------------------------
+patched with Unknown AUD > ? > CD (shnid 81065) provided by missingfinger
+
+Notes/Flaws:
+1) First 24.200 seconds of Tuning/Second That Emotion patched from audience to start disk 1.
+
+2) Between Second that Emotion and They Love Each Other - 41.200 seconds were missing from sbd - patched and normalized from audience.
+
+3) Between They Love Each Other and I'll Take a Melody - 1 minute and 00.200 seconds were missing from sbd - patched and normalized from audience.
+
+4) Approx 1 minute 48 seconds in That's What Love Will Make You Do - 17.800 seconds were missing from sbd - patched and normalized from audience.
+
+5) Between The Way You Do The Things You Do and Midnight Moonlight - 1 minute and 06.400 seconds were missing from sbd - patched and normalized from audience.
+
+6) Between Midnight Moonlight and Strange Man - 40.700 seconds were missing from sbd - patched and normalized from audience.
+
+7) Approx 4 minute 30 seconds in Strange Man - 23.500 seconds were missing from sbd - patched and normalized from audience.
+
+8) Between Strange Man and Tore Up - 24.600 seconds were missing from sbd - patched and normalized from audience.
+
+9) Between Tore Up and Stop That Train - 51.700 seconds were missing from sbd - patched and normalized from audience.
+
+10) Between Stop That Train and Ride Mighty High - 1 minute and 10.000 seconds were missing from sbd - patched and normalized from audience.
+
+This sbd was patched with audience from Missingfinger while working on a dts version of this show.
+
+- Mixed by kevtobin@yahoo.com
+- FLAC conversion 27-DEC-2006  
+
+Jerry Garcia Band 
+    * Jerry Garcia - guitar, vocals
+    * John Kahn - bass
+    * Keith Godchaux - keyboards, backing vocals
+    * Donna Godchaux - vocals
+    * Ron Tutt - drums
+
+ length     expanded size   cdr  WAVE problems filename
+ 14:17.31      151247756    ---   --   -----   jgb76-08-22d1t01.wav
+  8:17.55       87800204    ---   --   -----   jgb76-08-22d1t02.wav
+ 18:02.60      191005964    ---   --   -----   jgb76-08-22d1t03.wav
+ 11:28.37      121450268    ---   --   -----   jgb76-08-22d1t04.wav
+  7:42.47       81607388    ---   --   -----   jgb76-08-22d1t05.wav
+  9:49.49      104014892    ---   --   -----   jgb76-08-22d2t01.wav
+ 11:11.45      118470284    ---   --   -----   jgb76-08-22d2t02.wav
+  7:20.00       77616044    ---   --   -----   jgb76-08-22d2t03.wav
+ 11:54.41      126046076    ---   --   -----   jgb76-08-22d2t04.wav
+ 13:42.64      145151372    ---   --   -----   jgb76-08-22d2t05.wav
+  8:06.07       85746908    ---   --   -----   jgb76-08-22d2t06.wav
+121:53.61     1290157156 B                     (totals for 11 files, 1.0000 overall compression ratio)

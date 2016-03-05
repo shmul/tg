@@ -1,0 +1,26 @@
+Reconstruction
+Keystone Palo Alto, Palo Alto
+June 17, 1979
+
+
+01 //Don't It Make It Better
+02 I Just Want to Stop
+03 Strugglin' Man
+04 Another Star
+05 That's What Love Will Make You Do
+06 Tellin' My Friends
+07 Someday Baby
+08 Lyinda
+09 Ain't That Lovin' You
+10 Instrumental//
+
+
+Jerry Garcia g,v 
+John Kahn b
+Merl Saunders keys,v 
+Ed Neumeister trb 
+Ron Stallings ts,v 
+Gaylord Birch d 
+
+Master soundboard reel > PCM > CD > Plextor PX-708A extraction (EAC v0.95 prebeta 5) > tracking (CD Wave) > sector boundary verification (shntool v2.0.3) > .flac encoding (flac v1.1.0)
+EAC and FLAC encoding by Jack Warner (jackmw1ATsbcglobalDOTnet)

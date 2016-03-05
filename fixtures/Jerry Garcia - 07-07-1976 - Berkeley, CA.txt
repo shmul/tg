@@ -1,0 +1,75 @@
+Jerry Garcia Band
+July 20, 1976
+Keystone
+Berkeley, CA
+
+Source:  SBD > Master Reel > PCM > DAT (44.1khz)
+
+Transfer:  Conner CTD8000H/R-S DDS > Wavelab 4.0 > mkwACT by JJ Clifton
+
+Disc 1					68:54
+				
+-- Set 1 --				68:54
+				
+01  They Love Each Other  		09:04
+02  After Midnight  			16:14
+03  Stir It Up  			13:49
+04  /Night They Drove Old Dixie Down  	11:48
+05  Midnight Moonlight  		10:23
+06  The Way You Do The Things You Do  	07:36
+				
+Disc 2					48:14
+				
+-- Set 2 --				48:14
+				
+01  I'll Take A Melody 			19:38
+02  Tore Up Over You  			10:40
+03  Mystery Train  			12:07
+04  Ride Mighty High%  			05:49
+
+
+Musicians:
+
+Jerry Garcia - guitar, vocals 
+John Kahn - bass 
+Keith Godchaux - keyboards, backing vocals 
+Donna Godchaux - vocals 
+Ron Tutt - drums 
+
+For more information see www.thejerrysite.com
+
+
+Known Flaws (on source DAT):
+
+d1t02:  blip at 6:32, 7:32; static/reel flutter at ~07:46-7:48
+d1t04:  fades in at beginning; static/reel flutter at ~9:27-9:30
+d2t04:  reel splice at ~3:53-3:55
+
+
+shnTool output:
+    length     expanded size   cdr  WAVE  probs   filename
+     9:04.00      95961644     ---   --    -xx    jgb1976-07-20d1t01.shn
+    16:14.00     171813644     ---   --    -xx    jgb1976-07-20d1t02.shn
+    13:49.00     146235644     ---   --    -xx    jgb1976-07-20d1t03.shn
+    11:48.00     124891244     ---   --    -xx    jgb1976-07-20d1t04.shn
+    10:23.00     109897244     ---   --    -xx    jgb1976-07-20d1t05.shn
+     7:36.01      80440796     ---   --    -xx    jgb1976-07-20d1t06.shn
+    19:38.00     207799244     ---   --    -xx    jgb1976-07-20d2t01.shn
+    10:40.00     112896044     ---   --    -xx    jgb1976-07-20d2t02.shn
+    12:07.00     128242844     ---   --    -xx    jgb1976-07-20d2t03.shn
+     5:49.02      61568348     ---   --    -xx    jgb1976-07-20d2t04.shn
+   117:08.03    1239746696 B                      
+(totals for 10 files, 0.3037 overall compression ratio)
+
+md5:
+126fa6872aeff70fb4a21d3eac1422d3 *jgb1976-07-20d1t01.shn
+7d9cc3562cdcb9caa5b943d6e3a5c1ed *jgb1976-07-20d1t02.shn
+ec2f058120993de67a0a0bf3fb73a3d6 *jgb1976-07-20d1t03.shn
+a9f3d98ac76669967710bb7fd1e1cedb *jgb1976-07-20d1t04.shn
+8120e22f23657ff5adddb40e8ea138b8 *jgb1976-07-20d1t05.shn
+66963ec584c23a6718a87872549d744b *jgb1976-07-20d1t06.shn
+d8fa3e8827555a8c5fd70da4dabf447a *jgb1976-07-20d2t01.shn
+fb6dac7c9a6dc65dc86de2ee6e207918 *jgb1976-07-20d2t02.shn
+3ee1a830122e14d3af683bcc564ec53e *jgb1976-07-20d2t03.shn
+86f2f65a28eaf297c6bd79f1813035bb *jgb1976-07-20d2t04.shn
+
