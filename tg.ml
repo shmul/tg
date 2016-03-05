@@ -978,7 +978,9 @@ let test =
     let fixtures =
     [
       ("sly10-9-70.txt",6,"Thank you","Simple Song","Stand!","I want to Take You Higher");
-      ("yes.txt",5,"I've Seen All Good People","Rick Wakeman Moog - Piano - Organ - Mellotron Solo","Rick Wakeman Moog - Piano - Organ - Mellotron Solo","Yours Is No Disgrace")
+      ("yes.txt",5,"I've Seen All Good People","Rick Wakeman Moog - Piano - Organ - Mellotron Solo","Rick Wakeman Moog - Piano - Organ - Mellotron Solo","Yours Is No Disgrace");
+      ("Reading 1977.txt",11,"Faith Healer","King Kong","Delilah","Interview");
+      ("turkuaz.txt",20,"Chatte Lunatique","Nightswimming","Pickin' Up (Where You Left Off)","Monkey Fingers");
     ] in
     List.iteri fixtures
               ~f:(fun i (f,l,frst,thrd,before,last) ->
