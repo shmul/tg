@@ -105,7 +105,8 @@ let parse_scanner_string str =
 let scan_string field parts pattern =
   let tags = Hashtbl.Poly.create () ~size:6 in
   match Regex.find_submatches pattern field with
-  | Error _ -> raise Not_found
+  | Error _ -> printf "scan_string failed %s\n" field;
+               raise Not_found
   | Ok m ->
      try
        let scanned = Array.to_list m |> List.tl_exn |> List.filter_opt in
@@ -207,7 +208,7 @@ let file_name_guesses =
       [Rest;Disc;Track],"(.*)d[\\s\\._-]*(\\d)[\\s\\.\\)t_-]+(\\d+).*";
       [Disc;Track;Title],"(\\d)[\\s\\.\\)_-]+(\\d+)[\\s\\.-]+(.+)";
       [Disctrack;Title],"[\\s\\.-]*(\\d{1,3})[\\s\\.\\)_-]*(.+)";
-      [Rest;Disctrack],"(.+?)(\\d{1,3})";
+      [Rest;Disctrack],"(.+?)(\\d{2,3})";
       [Rest;Disctrack;Title],"(.+)[\\s\\.-]*(\\d{3})[\\s\\.\\)_-]+(.*)";
       [Track],"(.+)";
     ] ~f:(fun (expr, re) -> ( expr,create_full_line_regex re))
@@ -397,7 +398,8 @@ let interpolate_base_choice fields t = function
   | Literal v -> v
   | Pointer c -> (match interpolate_pointer fields t c with
                   | Some v -> v
-                  | _ -> raise Not_found)
+                  | _ -> printf "interpolate_pointer %s %d\n" (string_of_tag t) c;
+                         raise Not_found)
   | _ -> raise (Invalid_argument "unexpected base choice")
 
 
@@ -559,7 +561,7 @@ let line_skip_pats =
       "disc";
       "artwork";
       "kbps";
-    ] ~f:(fun re -> Regex.create_exn ~options:([`Case_sensitive false]) re)
+    ] ~f:(fun re -> Regex.create_exn ~options:([`Case_sensitive false]) ("^\\s*"^re^"\\b"))
 
 let prefix_pat = Regex.create_exn "^[dts\\d_\\.\\-\\:\\(\\)\\[\\]]+\\s+"
 let suffix_pat = Regex.create_exn "\\s+[\\d\\(\\[][\\d_\\.\\-:\\)\\]\\s]+$"
@@ -655,7 +657,7 @@ let guess_track_names file_lines num_tracks =
       loop (idx+1) ((index_score idx) :: scores)
     else
       scores in
-  (*List.iter scores ~f:(fun (i,m,p,s,t) -> printf "%i %B %B %i %i %s\n" m p s t i lines.(i).clean );*)
+(*  List.iter scores ~f:(fun (i,m,p,s,t) -> printf "%i %B %B %i %i %s\n" m p s t i lines.(i).clean );*)
   List.map (loop 0 [] |> List.sort ~cmp:compare_scores)
            ~f:(fun (idx,_,_,_,_) -> Array.sub lines ~pos:idx ~len:num_tracks |> Array.to_list) |>
     List.map ~f:(fun x -> List.map x ~f:(fun y -> y.clean))
@@ -672,12 +674,13 @@ let user_tracks_choice ?(readl=read_line) ?(printl=printf) guesses =
     let confirm =
       printf "\n";
       print_tracks guesses idx;
-      printl "\nHappy? [Y,n,q]> ";
+      printl "\nHappy? [Y,n,q,s]> ";
       try
         match (String.prefix (readl ()) 1) with
         | "y" | "Y" | "" -> List.nth guesses idx
         | "n" | "N" -> read_user_choice (idx+1)
         | "q" | "Q" -> quit ()
+        | "s" | "S" -> None
         | _ -> printl "Let's try one more time, ok?\n";
                read_user_choice idx;
       with Failure _ -> (
@@ -686,11 +689,14 @@ let user_tracks_choice ?(readl=read_line) ?(printl=printf) guesses =
       ) in
 
     if idx>=(List.length guesses) then (
-      printl "List exhausted; Quitting";
+      printl "List exhausted; Quitting\n";
       quit ()
     ) else
       confirm in
-  read_user_choice 0
+  if List.is_empty guesses then
+    None
+  else
+    read_user_choice 0
 
 (* command line handling *)
 let readable_file =
@@ -773,6 +779,38 @@ let find_file name base_file =
        List.find ~f:exists
 
 
+(* From http://stackoverflow.com/questions/2214970/collecting-the-output-of-an-external-command-using-ocaml *)
+let cmd_to_list command =
+  let process_output_to_list2 = fun command ->
+    let chan = Unix.open_process_in command in
+    let res = ref ([] : string list) in
+    let rec process_otl_aux () =
+      let e = input_line chan in
+      res := e::!res;
+      process_otl_aux() in
+    try process_otl_aux ()
+    with End_of_file ->
+      let stat = Unix.close_process_in chan in (List.rev !res,stat) in
+  let (l,_) = process_output_to_list2 command in
+  l
+
+
+let find_text_files base_file =
+  let open Filename in
+  match base_file with
+  | None -> None
+  | Some x ->
+     List.map [x; dirname x] (*; dirname x |> dirname]*)
+              ~f:(fun dir ->
+                  let c = "find \""^dir^"\" -type f -exec file {} \\; | grep -vi html | grep  text | cut -d: -f1" in
+                  (x,cmd_to_list c)) |>
+       List.find ~f:(fun (f,x) -> if not (List.is_empty x) then (
+                                    printf "using %s for tracks guessing" f;
+                                    true)
+                                  else
+                                    false)
+
+
 let index_html_pats = Regex.create_exn "\\s+ (.+) [\\d:]+ <em>"
 let tracks_txt_pats = Regex.create_exn "\\s*[\\d\\.\\):\\-]*\\s*(.+)"
 
@@ -826,20 +864,33 @@ let set =
 		              +> anon (sequence ("filename" %: readable_file))
   )
 		(fun ar lo al ti tr di  erase dryrun print tracks files () ->
-     let all_files = List.map files ~f:(fun x -> read_directory x "\\.(mp[34]|flac|ogg)$")
+     let media_files = List.map files ~f:(fun x -> read_directory x "\\.(mp[34]|flac|ogg)$")
                      |> List.concat |> List.sort ~cmp:compare |>
                        List.filter ~f:(fun x-> x<>"") in
+     let num_media_files = List.length media_files in
      let cmd_line_tags = Hashtbl.Poly.create () ~size:6 in
+     let find_text_files_and_guess_tracks base_file num =
+       match find_text_files base_file with
+       | Some (_,text_files) ->
+          let choice f = user_tracks_choice (guess_track_names (lines_of f) num) in
+          (match (List.find_map text_files ~f:choice) with
+          | Some t -> t
+          | None -> [])
+       | None -> []
+     in
      let string_of_int_opt = function
        | Some t -> Some (string_of_int t)
        | None -> None in
      let set_tag = function
        | (t,Some vv) -> Hashtbl.set cmd_line_tags ~key:t ~data:vv
        | (_,None) -> () in
-     let track_names = if not print then
-                         read_tracks_names tracks (List.hd all_files)
-                       else
-                         [] in
+     let track_names =
+       if not print then (
+         match read_tracks_names tracks (List.hd media_files) with
+         | hd :: tl -> hd :: tl
+         | [] -> find_text_files_and_guess_tracks (List.hd media_files) num_media_files
+       ) else
+         [] in
      List.iter ~f:set_tag
                [Artist,ar;
                 Location,lo;
@@ -873,13 +924,12 @@ let set =
          "dirname",dirname_fields;
        ] in
      let num_track_names = List.length track_names in
-     let num_files = List.length all_files in
-     if num_track_names>0 && num_track_names<>num_files then
+     if num_track_names>0 && num_track_names<>num_media_files then
        raise (Invalid_argument
                 (sprintf "Track names size mismatch: actual:%d expected: %d"
-                         num_track_names num_files));
+                         num_track_names num_media_files));
      let fields =
-       match List.hd all_files with
+       match List.hd media_files with
        | Some x -> printf "%s\n" x; fields_for_file 0 x
        | _ -> [] in
 
@@ -888,7 +938,7 @@ let set =
        printf "------\n";
        let choices = List.append (pertrack_choice fields)  (global_choice fields) in
        let last_tags = List.foldi
-                         all_files
+                         media_files
                          ~init:empty_tags
                          ~f:(fun i _ x ->
                              let tags = apply_choices (i+1) (fields_for_file i x) choices  in
@@ -937,6 +987,7 @@ let test =
         [Disc;Track;Title],"2-03 Been So Long";
         [Rest;Disc;Track],"gd90-09-20d2t02";
         [Rest;Disc;Track],"ABB1973-12-31d4t01";
+        [Rest;Disctrack;Title],"Blues Project - Matrix 1966 - 06 - FLUTE THING 1"
       ] in
     List.iter pairs ~f:(fun (expected, raw)->
                         match all_guesses raw with
@@ -977,10 +1028,13 @@ let test =
   let tracks () =
     let fixtures =
     [
+
       ("sly10-9-70.txt",6,"Thank you","Simple Song","Stand!","I want to Take You Higher");
       ("yes.txt",5,"I've Seen All Good People","Rick Wakeman Moog - Piano - Organ - Mellotron Solo","Rick Wakeman Moog - Piano - Organ - Mellotron Solo","Yours Is No Disgrace");
       ("Reading 1977.txt",11,"Faith Healer","King Kong","Delilah","Interview");
       ("turkuaz.txt",20,"Chatte Lunatique","Nightswimming","Pickin' Up (Where You Left Off)","Monkey Fingers");
+      ("Graham Parker - 06-06-1979 - Calderone.txt",20,"Discovering Japan","Protection","encore applause","New York Shuffle");
+      ("Jerry Garcia - 07-09-1977 - Asbury Park - Late.txt",8,"Harder They Come","Midnight Moonlight","Knockin' On Heaven's Door","Not Fade Away");
     ] in
     List.iteri fixtures
               ~f:(fun i (f,l,frst,thrd,before,last) ->
