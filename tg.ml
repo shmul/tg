@@ -203,10 +203,11 @@ let file_name_guesses =
       [Disc],".*\\scd*(\\d+).*";
       [Rest;Disc],"(.*?)disc[\\s\\.-]*(\\d+)";
       [Rest;Disc],"(.*?)cd[\\s\\.-]*(\\d+)";
-      [Disc;Track;Title],"d[\\s\\._-]*(\\d+)[\\s\\.\\)_-]*t[\\s\\.-]*(\\d+)[\\s\\._-]*(.*)";
-      [Rest;Disc;Track;Title],"(.*)d[\\s\\._-]*(\\d)[\\s\\.\\)t_-]+(\\d+)[\\s\\._-]+(.+)";
-      [Rest;Disc;Track],"(.*)d[\\s\\._-]*(\\d)[\\s\\.\\)t_-]+(\\d+).*";
+      [Disc;Track;Title],"[ds][\\s\\._-]*(\\d+)[\\s\\.\\)_-]*t[\\s\\.-]*(\\d+)[\\s\\._-]*(.*)";
+      [Rest;Disc;Track;Title],"(.*)[ds][\\s\\._-]*(\\d)[\\s\\.\\)t_-]+(\\d+)[\\s\\._-]+(.+)";
+      [Rest;Disc;Track],"(.*)[ds][\\s\\._-]*(\\d)[\\s\\.\\)t_-]+(\\d+).*";
       [Disc;Track;Title],"(\\d)[\\s\\.\\)_-]+(\\d+)[\\s\\.-]+(.+)";
+      [Disctrack;Title],"(ab]?\\d[\\s\\.\\)_-]+)[\\s\\.-]+(.+)";
       [Disctrack;Title],"[\\s\\.-]*(\\d{1,3})[\\s\\.\\)_-]*(.+)";
       [Rest;Disctrack],"(.+?)(\\d{2,3})";
       [Rest;Disctrack;Title],"(.+)[\\s\\.-]*(\\d{3})[\\s\\.\\)_-]+(.*)";
@@ -238,16 +239,17 @@ let guess_date_1 raw_str =
   let str = Str.global_replace (Str.regexp (sprintf "[%s]" date_delims)) " " raw_str in
   let sub s pos len = (String.sub ~pos:pos ~len:len s) in
   let matches r s = Regex.matches (Regex.create_exn r) s in
+  let i_of_s s = try (int_of_string s) with _ -> -1 in
   let guess_mm_dd u v =
-    if (int_of_string v)>12 then
+    if (i_of_s v)>12 then
       (u,v)
     else
       (v,u) in
   let guess_yy t u v =
     try
-      if (int_of_string v)>31 then
+      if (i_of_s v)>31 then
         (v,t,u)
-      else if (int_of_string u)>31 then
+      else if (i_of_s u)>31 then
         (u,t,v)
       else
         (t,u,v)
@@ -256,7 +258,7 @@ let guess_date_1 raw_str =
   let trim = Core.Std.Caml.String.trim in
   let return y d2 d3 =
     let m,d = guess_mm_dd (trim d2) (trim d3) in
-    Some (sprintf "%02d-%02d-%02d" (int_of_string y) (int_of_string m) (int_of_string d)) in
+    Some (sprintf "%02d-%02d-%02d" (i_of_s y) (i_of_s m) (i_of_s d)) in
   let return_guess d1 d2 d3 =
     let y,u,v = guess_yy (trim d1) (trim d2) (trim d3) in
     return y u v in
@@ -339,13 +341,24 @@ let string_of_guess_fields fields =
 
 (* drop extra spaces; capitalize; decode; remove "_#*"; *)
 let split_pats = Regex.create_exn "[ _%#\\*]+"
+let maybe_lowercase s =
+  if String.length s<3 then
+    s
+  else
+    String.lowercase s
+
+let maybe_capitalize s =
+  if String.length s<3 then
+    s
+  else
+    String.capitalize s
 
 let normalize str =
   let parts = Regex.split split_pats (urldecode str) in
   let replace_underscore x = Str.global_replace (Str.regexp "_") " " x in
   String.concat ~sep:" " (List.filter parts ~f:(fun x -> (String.length x)>0) |>
-                            List.map ~f:String.lowercase |>
-                            List.map ~f:String.capitalize ) |>
+                            List.map ~f:maybe_lowercase |>
+                            List.map ~f:maybe_capitalize ) |>
     replace_underscore
 
 
@@ -550,7 +563,7 @@ let rec read_directory path selector : string list =
   ) else
     [path]
 
-let token_pat = Str.regexp "[ \t]+"
+let token_pat = Str.regexp "[ \t\r]+"
 let line_skip_pats =
   List.map [
       "show";
@@ -561,11 +574,13 @@ let line_skip_pats =
       "disc";
       "artwork";
       "kbps";
-    ] ~f:(fun re -> Regex.create_exn ~options:([`Case_sensitive false]) ("^\\s*"^re^"\\b"))
+      "side";
+    ] ~f:(fun re -> Regex.create_exn ~options:([`Case_sensitive false]) ("\\s*"^re^"\\b"))
 
-let prefix_pat = Regex.create_exn "^[dts\\d_\\.\\-\\:\\(\\)\\[\\]]+\\s+"
+let prefix_pat = Regex.create_exn "^[ABdts\\d_\\.\\-\\:\\(\\)\\[\\]]+\\s+"
 let suffix_pat = Regex.create_exn "\\s+[\\d\\(\\[][\\d_\\.\\-:\\)\\]\\s]+$"
-let scrub_pat = Regex.create_exn "\\s+[\\*\\^@\\+]+[\\d]*$"
+let scrub_pat = Regex.create_exn "(^[\\*\\^@\\+~%&]+)|([\\*\\^@\\+~%&]+[\\d]*$)"
+
 
 let num_tokens line =
   Str.split token_pat line |> List.length
@@ -577,7 +592,8 @@ let line_prefix_suffix line =
   (* printf "%s\n" (String.concat ~sep:";" skip_prefix); *)
   let clean = Regex.split prefix_pat line |> String.concat ~sep:"" |>
                 Regex.split suffix_pat |> String.concat ~sep:"" |>
-                Regex.split scrub_pat |> String.concat ~sep:"" in
+                Regex.split scrub_pat |>
+                String.concat ~sep:"" in
   Regex.matches prefix_pat line,Regex.matches suffix_pat line,clean
 
 type stamp = { raw_line_num: int; kept_line_num: int; num_tokens: int; prefix: bool; suffix: bool; clean: string; raw: string }
@@ -593,7 +609,7 @@ let stamp_text_lines lines =
   let stamp idx (kept_num,stamped) line =
     let nt = num_tokens line in
     let skip = has_skipped_patterns line in
-    if skip && nt<=3 then
+    if (skip && nt<3) then
       (kept_num,stamped)
     else (
       let prefix,suffix,clean = line_prefix_suffix line in
@@ -864,7 +880,7 @@ let set =
 		              +> anon (sequence ("filename" %: readable_file))
   )
 		(fun ar lo al ti tr di  erase dryrun print tracks files () ->
-     let media_files = List.map files ~f:(fun x -> read_directory x "\\.(mp[34]|flac|ogg)$")
+     let media_files = List.map files ~f:(fun x -> read_directory x "\\.(mp[34]|flac|ogg|m4a)$")
                      |> List.concat |> List.sort ~cmp:compare |>
                        List.filter ~f:(fun x-> x<>"") in
      let num_media_files = List.length media_files in
@@ -1028,13 +1044,15 @@ let test =
   let tracks () =
     let fixtures =
     [
-
+      ("/Jerry\ Garcia\ -\ 12-02-1989\ -\ San\ Francisco.txt",14,"How Sweet It Is (To Be Loved By You","Simple Twist Of Fate","And It Stoned Me","Midnight Moonlight");
+      ("Live in Cuba.txt",14,"The Landing","Voodoo Duty","A Moment with Marty","I Don't Wanna Go, Not Today!");
       ("sly10-9-70.txt",6,"Thank you","Simple Song","Stand!","I want to Take You Higher");
       ("yes.txt",5,"I've Seen All Good People","Rick Wakeman Moog - Piano - Organ - Mellotron Solo","Rick Wakeman Moog - Piano - Organ - Mellotron Solo","Yours Is No Disgrace");
       ("Reading 1977.txt",11,"Faith Healer","King Kong","Delilah","Interview");
       ("turkuaz.txt",20,"Chatte Lunatique","Nightswimming","Pickin' Up (Where You Left Off)","Monkey Fingers");
       ("Graham Parker - 06-06-1979 - Calderone.txt",20,"Discovering Japan","Protection","encore applause","New York Shuffle");
       ("Jerry Garcia - 07-09-1977 - Asbury Park - Late.txt",8,"Harder They Come","Midnight Moonlight","Knockin' On Heaven's Door","Not Fade Away");
+
     ] in
     List.iteri fixtures
               ~f:(fun i (f,l,frst,thrd,before,last) ->
@@ -1046,7 +1064,7 @@ let test =
                                 as_eq thrd (List.nth_exn trs 2);
                                 as_eq before (List.nth_exn trs (len-3));
                                 as_eq last (List.last_exn trs)
-                  | None -> failwith (sprintf "%d" i)
+                  | None -> failwith (sprintf "%d %s" i f)
                  )
      in
 
