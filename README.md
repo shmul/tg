@@ -37,5 +37,5 @@ I only used these initially and then stopped enhancing them nor even making sure
 This project is licensed under the terms of the MIT license.
 
 ## TODO
-* automatically scan text files in a directory and try to identify track names.
-* identify common prefix/suffix in track names and file names. Then use only the variable parts for guessing disc, track, title
+- [x] automatically scan text files in a directory and try to identify track names.
+- [x] identify common prefix/suffix in track names and file names. Then use only the variable parts for guessing disc, track, title
